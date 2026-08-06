@@ -1,7 +1,8 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "ruili-reconciliation-ui",
   "version": "0.1.0",
   "private": true,
+  "description": "锐力对账财务协同工作台前端",
   "engines": {
     "node": ">=22.13.0"
   },
