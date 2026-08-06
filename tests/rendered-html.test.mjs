@@ -46,7 +46,8 @@ test("keeps business logic behind the backend API contract", async () => {
   assert.match(page, /reconciliationApi\.getStatistics/);
   assert.match(api, /formData\.append\("settlementFile"/);
   assert.match(api, /formData\.append\("erpFile"/);
-  assert.match(api, /"Idempotency-Key": crypto\.randomUUID\(\)/);
+  assert.match(api, /"Idempotency-Key": this\.idempotencyKeyFor\(input\)/);
+  assert.match(api, /credentials: "include"/);
   assert.match(api, /NEXT_PUBLIC_API_BASE_URL/);
   assert.match(types, /"QUEUED"[\s\S]*"PROCESSING"[\s\S]*"SUCCEEDED"[\s\S]*"NEEDS_REVIEW"[\s\S]*"FAILED"/);
   assert.match(contract, /operationId: createReconciliationTask/);

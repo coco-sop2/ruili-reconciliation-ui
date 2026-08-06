@@ -62,7 +62,7 @@ QUEUED → PROCESSING → SUCCEEDED
 
 - Content-Type：`multipart/form-data`，由浏览器自动生成 boundary。
 - 字段名固定为 `settlementFile` 和 `erpFile`。
-- 前端生成并传递 `Idempotency-Key`；后端需保证同一用户、同一 key 的重复请求只创建一个任务。
+- 前端为同一次文件提交生成并传递稳定的 `Idempotency-Key`；网络失败后的重试沿用原 key。后端需保证同一用户、同一 key 的重复请求只创建一个任务。
 - 当前界面提示单文件上限为 20 MB，后端必须再次校验，并以 `413 FILE_TOO_LARGE` 为权威结果。
 - V1 采用单请求直传。若未来文件明显增大，再升级为“预签名上传 + 创建任务”两阶段流程。
 

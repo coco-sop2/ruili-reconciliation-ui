@@ -64,9 +64,12 @@ paths:
         - name: status
           in: query
           description: 逗号分隔的状态，可同时查询 QUEUED 和 PROCESSING。
+          style: form
+          explode: false
           schema:
-            type: string
-            example: QUEUED,PROCESSING
+            type: array
+            items:
+              $ref: '#/components/schemas/ReconciliationStatus'
         - name: keyword
           in: query
           description: 匹配任务 ID、文件名或创建人姓名。

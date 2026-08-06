@@ -200,9 +200,14 @@ td > span:not(.status) { color: #929b9e; font-size: 8px; margin-top: 4px; }
 .empty-state { height: 180px; display: grid; place-content: center; text-align: center; }
 .empty-state b { font-size: 12px; }.empty-state span { margin-top: 8px; color: #929b9e; font-size: 9px; }
 .empty-state--error b { color: var(--danger); }
+.pagination { min-height: 52px; padding: 0 20px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; color: #899397; font-size: 9px; }
+.pagination > div { display: flex; gap: 6px; }
+.pagination button { height: 28px; padding: 0 11px; border: 1px solid #d9dede; background: #fff; color: #546369; font-size: 9px; cursor: pointer; }
+.pagination button:disabled { color: #b2b9bb; background: #f7f8f8; cursor: not-allowed; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(14, 26, 31, .26); display: flex; justify-content: flex-end; }
-.detail-drawer { width: min(430px, 92vw); height: 100%; background: #fff; padding: 42px 36px; box-shadow: -20px 0 50px rgba(15,28,33,.12); position: relative; animation: slideIn .22s ease-out; }
+.drawer-dismiss { position: absolute; inset: 0; border: 0; background: transparent; cursor: default; }
+.detail-drawer { z-index: 1; width: min(430px, 92vw); height: 100%; background: #fff; padding: 42px 36px; box-shadow: -20px 0 50px rgba(15,28,33,.12); position: relative; animation: slideIn .22s ease-out; }
 @keyframes slideIn { from { transform: translateX(24px); opacity: 0; } }
 .drawer-close { position: absolute; right: 24px; top: 20px; border: 0; background: transparent; color: #7a8589; font-size: 24px; cursor: pointer; }
 .detail-drawer h2 { margin: 0 0 12px; font-size: 23px; }

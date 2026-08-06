@@ -50,6 +50,21 @@ async function unwrap<T>(response: Response): Promise<T> {
 }
 
 class HttpReconciliationApi implements ReconciliationApi {
+  private idempotencyKeys = new WeakMap<File, WeakMap<File, string>>();
+
+  private idempotencyKeyFor(input: CreateReconciliationTaskInput) {
+    let erpKeys = this.idempotencyKeys.get(input.settlementFile);
+    if (!erpKeys) {
+      erpKeys = new WeakMap<File, string>();
+      this.idempotencyKeys.set(input.settlementFile, erpKeys);
+    }
+    const existingKey = erpKeys.get(input.erpFile);
+    if (existingKey) return existingKey;
+    const newKey = crypto.randomUUID();
+    erpKeys.set(input.erpFile, newKey);
+    return newKey;
+  }
+
   async createTask(input: CreateReconciliationTaskInput) {
     const formData = new FormData();
     formData.append("settlementFile", input.settlementFile);
@@ -59,8 +74,9 @@ class HttpReconciliationApi implements ReconciliationApi {
       method: "POST",
       headers: {
         Accept: "application/json",
-        "Idempotency-Key": crypto.randomUUID(),
+        "Idempotency-Key": this.idempotencyKeyFor(input),
       },
+      credentials: "include",
       body: formData,
     }));
   }
@@ -74,6 +90,7 @@ class HttpReconciliationApi implements ReconciliationApi {
 
     return unwrap<PaginatedTasks>(await fetch(`${apiBaseUrl}/api/v1/reconciliation-tasks?${query}`, {
       headers: { Accept: "application/json" },
+      credentials: "include",
       cache: "no-store",
     }));
   }
@@ -81,7 +98,7 @@ class HttpReconciliationApi implements ReconciliationApi {
   async getTask(taskId: string) {
     return unwrap<ReconciliationTaskDetail>(await fetch(
       `${apiBaseUrl}/api/v1/reconciliation-tasks/${encodeURIComponent(taskId)}`,
-      { headers: { Accept: "application/json" }, cache: "no-store" },
+      { headers: { Accept: "application/json" }, credentials: "include", cache: "no-store" },
     ));
   }
 
@@ -89,7 +106,7 @@ class HttpReconciliationApi implements ReconciliationApi {
     const query = month ? `?month=${encodeURIComponent(month)}` : "";
     return unwrap<ReconciliationStatistics>(await fetch(
       `${apiBaseUrl}/api/v1/reconciliation-statistics${query}`,
-      { headers: { Accept: "application/json" }, cache: "no-store" },
+      { headers: { Accept: "application/json" }, credentials: "include", cache: "no-store" },
     ));
   }
 }
@@ -164,8 +181,27 @@ class MockReconciliationApi implements ReconciliationApi {
 
   async getTask(taskId: string) {
     await wait(120);
-    const task = mockTasks.find((item) => item.id === taskId);
+    let task = mockTasks.find((item) => item.id === taskId);
     if (!task) throw new ReconciliationApiError("未找到对账任务", "TASK_NOT_FOUND", "mock-request", 404);
+    const taskAge = Date.now() - new Date(task.createdAt).getTime();
+    if ((task.status === "QUEUED" || task.status === "PROCESSING") && taskAge > 2_500) {
+      task = taskAge > 6_000
+        ? {
+            ...task,
+            status: "NEEDS_REVIEW",
+            periodLabel: "2026年7月",
+            completedAt: new Date().toISOString(),
+            metrics: {
+              settlementAmount: money("3286400.00"),
+              differenceAmount: money("1260.00"),
+              totalCount: 1682,
+              matchedCount: 1679,
+              differenceCount: 3,
+            },
+          }
+        : { ...task, status: "PROCESSING" };
+      mockTasks = mockTasks.map((item) => item.id === taskId ? task : item);
+    }
     return {
       ...task,
       failure: task.status === "FAILED" ? { code: "INVALID_FILE_STRUCTURE", message: "ERP 表单缺少必需的订单编号列" } : null,

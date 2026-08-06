@@ -1,7 +1,7 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { reconciliationApi, usingMockApi } from "../lib/reconciliation-api";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReconciliationApiError, reconciliationApi, usingMockApi } from "../lib/reconciliation-api";
 import type {
   Money,
   ReconciliationStatistics,
@@ -87,6 +87,13 @@ function toViewModel(task: ReconciliationTaskSummary): ReconciliationView {
   };
 }
 
+function requestErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ReconciliationApiError) {
+    return `${error.message}${error.requestId ? `（请求编号：${error.requestId}）` : ""}`;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 function FileCard({
   eyebrow,
   title,
@@ -157,7 +164,7 @@ function StartView({ onComplete }: { onComplete: (task: ReconciliationTaskSummar
       const task = await reconciliationApi.createTask({ settlementFile, erpFile });
       onComplete(task);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "创建对账任务失败，请稍后重试");
+      setError(requestErrorMessage(requestError, "创建对账任务失败，请稍后重试"));
       setRunning(false);
     }
   };
@@ -237,28 +244,34 @@ function OverviewView() {
   const [query, setQuery] = useState("");
   const [tasks, setTasks] = useState<ReconciliationTaskSummary[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [statistics, setStatistics] = useState<ReconciliationStatistics | null>(null);
   const [selected, setSelected] = useState<ReconciliationView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const pageSize = 20;
 
   const loadTasks = useCallback(async () => {
+    const requestNumber = ++requestSequence.current;
     try {
       setError("");
       const result = await reconciliationApi.listTasks({
         status: filter === "all" ? undefined : statusFilters[filter],
         keyword: query.trim() || undefined,
-        page: 1,
-        pageSize: 50,
+        page,
+        pageSize,
       });
+      if (requestNumber !== requestSequence.current) return;
       setTasks(result.items);
       setTotal(result.total);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "历史任务加载失败");
+      if (requestNumber !== requestSequence.current) return;
+      setError(requestErrorMessage(requestError, "历史任务加载失败"));
     } finally {
-      setLoading(false);
+      if (requestNumber === requestSequence.current) setLoading(false);
     }
-  }, [filter, query]);
+  }, [filter, page, query]);
 
   const loadStatistics = useCallback(async () => {
     try {
@@ -273,14 +286,38 @@ function OverviewView() {
     return () => window.clearTimeout(timer);
   }, [loadTasks, query]);
 
-  useEffect(() => { void loadStatistics(); }, [loadStatistics]);
+  useEffect(() => {
+    let active = true;
+    reconciliationApi.getStatistics()
+      .then((result) => { if (active) setStatistics(result); })
+      .catch(() => { if (active) setStatistics(null); });
+    return () => { active = false; };
+  }, []);
 
   const hasActiveTask = tasks.some((task) => task.status === "QUEUED" || task.status === "PROCESSING");
   useEffect(() => {
     if (!hasActiveTask) return;
-    const timer = window.setInterval(() => { void loadTasks(); void loadStatistics(); }, 3_000);
+    const activeTaskIds = tasks
+      .filter((task) => task.status === "QUEUED" || task.status === "PROCESSING")
+      .map((task) => task.id);
+    const refreshActiveTasks = async () => {
+      const results = await Promise.allSettled(activeTaskIds.map((taskId) => reconciliationApi.getTask(taskId)));
+      const refreshed = new Map(
+        results
+          .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof reconciliationApi.getTask>>> => result.status === "fulfilled")
+          .map((result) => [result.value.id, result.value]),
+      );
+      setTasks((current) => current.map((task) => refreshed.get(task.id) ?? task));
+      setSelected((current) => {
+        if (!current) return null;
+        const refreshedTask = refreshed.get(current.id);
+        return refreshedTask ? { ...toViewModel(refreshedTask), failure: refreshedTask.failure?.message ?? null } : current;
+      });
+      void loadStatistics();
+    };
+    const timer = window.setInterval(() => { void refreshActiveTasks(); }, 3_000);
     return () => window.clearInterval(timer);
-  }, [hasActiveTask, loadStatistics, loadTasks]);
+  }, [hasActiveTask, loadStatistics, tasks]);
 
   const records = useMemo(() => tasks.map(toViewModel), [tasks]);
   const counts = {
@@ -298,7 +335,7 @@ function OverviewView() {
       const detail = await reconciliationApi.getTask(taskId);
       setSelected({ ...toViewModel(detail), failure: detail.failure?.message ?? null });
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "任务详情加载失败");
+      setError(requestErrorMessage(requestError, "任务详情加载失败"));
     }
   };
 
@@ -343,7 +380,7 @@ function OverviewView() {
           <div><h2>历史对账</h2><span>共 {total} 条任务</span></div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务编号、文件或负责人" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索任务编号、文件或负责人" />
           </label>
         </div>
 
@@ -352,7 +389,7 @@ function OverviewView() {
             ["all", "全部", counts.all], ["success", "成功", counts.success], ["issue", "有差异", counts.issue],
             ["failed", "失败", counts.failed], ["processing", "进行中", counts.processing],
           ] as const).map(([value, label, count]) => (
-            <button key={value} type="button" className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>
+            <button key={value} type="button" className={filter === value ? "active" : ""} onClick={() => { setFilter(value); setPage(1); }}>
               {label}<span>{count}</span>
             </button>
           ))}
@@ -380,11 +417,21 @@ function OverviewView() {
           {!loading && error && <div className="empty-state empty-state--error"><b>数据加载失败</b><span>{error}</span></div>}
           {!loading && !error && !records.length && <div className="empty-state"><b>没有找到相关任务</b><span>试试更换筛选条件或搜索关键词</span></div>}
         </div>
+        {total > pageSize && (
+          <div className="pagination" aria-label="历史任务分页">
+            <span>第 {page} / {Math.ceil(total / pageSize)} 页</span>
+            <div>
+              <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button>
+              <button type="button" disabled={page >= Math.ceil(total / pageSize)} onClick={() => setPage((current) => current + 1)}>下一页</button>
+            </div>
+          </div>
+        )}
       </section>
 
       {selected && (
-        <div className="drawer-backdrop" onClick={() => setSelected(null)}>
-          <aside className="detail-drawer" onClick={(event) => event.stopPropagation()} aria-label="对账任务详情">
+        <div className="drawer-backdrop">
+          <button type="button" className="drawer-dismiss" onClick={() => setSelected(null)} aria-label="关闭任务详情" />
+          <aside className="detail-drawer" aria-label="对账任务详情">
             <button type="button" className="drawer-close" onClick={() => setSelected(null)} aria-label="关闭详情">×</button>
             <span className="eyebrow">TASK DETAIL</span>
             <h2>{selected.id}</h2>
