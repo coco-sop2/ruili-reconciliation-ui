@@ -244,8 +244,13 @@ function OverviewView() {
   const [query, setQuery] = useState("");
   const [tasks, setTasks] = useState<ReconciliationTaskSummary[]>([]);
   const [total, setTotal] = useState(0);
+  const [facets, setFacets] = useState({
+    total: 0,
+    byStatus: { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, FAILED: 0 },
+  });
   const [page, setPage] = useState(1);
   const [statistics, setStatistics] = useState<ReconciliationStatistics | null>(null);
+  const [statisticsError, setStatisticsError] = useState("");
   const [selected, setSelected] = useState<ReconciliationView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -265,6 +270,7 @@ function OverviewView() {
       if (requestNumber !== requestSequence.current) return;
       setTasks(result.items);
       setTotal(result.total);
+      setFacets(result.facets);
     } catch (requestError) {
       if (requestNumber !== requestSequence.current) return;
       setError(requestErrorMessage(requestError, "历史任务加载失败"));
@@ -276,8 +282,10 @@ function OverviewView() {
   const loadStatistics = useCallback(async () => {
     try {
       setStatistics(await reconciliationApi.getStatistics());
-    } catch {
+      setStatisticsError("");
+    } catch (requestError) {
       setStatistics(null);
+      setStatisticsError(requestErrorMessage(requestError, "总览统计加载失败"));
     }
   }, []);
 
@@ -289,8 +297,8 @@ function OverviewView() {
   useEffect(() => {
     let active = true;
     reconciliationApi.getStatistics()
-      .then((result) => { if (active) setStatistics(result); })
-      .catch(() => { if (active) setStatistics(null); });
+      .then((result) => { if (active) { setStatistics(result); setStatisticsError(""); } })
+      .catch((requestError) => { if (active) { setStatistics(null); setStatisticsError(requestErrorMessage(requestError, "总览统计加载失败")); } });
     return () => { active = false; };
   }, []);
 
@@ -307,25 +315,31 @@ function OverviewView() {
           .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof reconciliationApi.getTask>>> => result.status === "fulfilled")
           .map((result) => [result.value.id, result.value]),
       );
+      const transitionedOutOfProcessing = tasks.some((task) => {
+        const nextTask = refreshed.get(task.id);
+        return nextTask && (task.status === "QUEUED" || task.status === "PROCESSING")
+          && nextTask.status !== "QUEUED" && nextTask.status !== "PROCESSING";
+      });
       setTasks((current) => current.map((task) => refreshed.get(task.id) ?? task));
       setSelected((current) => {
         if (!current) return null;
         const refreshedTask = refreshed.get(current.id);
         return refreshedTask ? { ...toViewModel(refreshedTask), failure: refreshedTask.failure?.message ?? null } : current;
       });
+      if (filter === "processing" && transitionedOutOfProcessing) void loadTasks();
       void loadStatistics();
     };
     const timer = window.setInterval(() => { void refreshActiveTasks(); }, 3_000);
     return () => window.clearInterval(timer);
-  }, [hasActiveTask, loadStatistics, tasks]);
+  }, [filter, hasActiveTask, loadStatistics, loadTasks, tasks]);
 
   const records = useMemo(() => tasks.map(toViewModel), [tasks]);
   const counts = {
-    all: statistics?.totalTasks ?? total,
-    success: statistics?.succeededTasks ?? 0,
-    issue: statistics?.needsReviewTasks ?? 0,
-    failed: statistics?.failedTasks ?? 0,
-    processing: statistics?.processingTasks ?? 0,
+    all: facets.total,
+    success: facets.byStatus.SUCCEEDED,
+    issue: facets.byStatus.NEEDS_REVIEW,
+    failed: facets.byStatus.FAILED,
+    processing: facets.byStatus.QUEUED + facets.byStatus.PROCESSING,
   };
   const trend = statistics?.trend ?? [];
   const maxTrend = Math.max(...trend.map((item) => item.taskCount), 1);
@@ -349,6 +363,8 @@ function OverviewView() {
         </div>
         <div className="updated-at"><span /> 数据更新于 {statistics ? formatTaskTime(statistics.updatedAt) : "加载中"}</div>
       </div>
+
+      {statisticsError && <div className="api-error overview-error" role="alert"><b>统计加载失败</b><span>{statisticsError}</span></div>}
 
       <div className="summary-grid">
         <article className="summary-card summary-card--total">
@@ -455,11 +471,6 @@ function OverviewView() {
 
 export default function Home() {
   const [view, setView] = useState<View>("start");
-  const [needsReviewCount, setNeedsReviewCount] = useState(0);
-
-  useEffect(() => {
-    reconciliationApi.getStatistics().then((result) => setNeedsReviewCount(result.needsReviewTasks)).catch(() => undefined);
-  }, [view]);
 
   const handleComplete = () => setView("overview");
 
@@ -470,7 +481,7 @@ export default function Home() {
         <nav aria-label="主导航">
           <span className="nav-label">工作台</span>
           <button type="button" className={view === "start" ? "active" : ""} onClick={() => setView("start")}><i>＋</i><span>发起对账</span></button>
-          <button type="button" className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}><i>览</i><span>对账总览</span>{needsReviewCount > 0 && <b>{needsReviewCount}</b>}</button>
+          <button type="button" className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}><i>览</i><span>对账总览</span></button>
           <button type="button" disabled><i>异</i><span>差异处理</span><em>稍后</em></button>
           <span className="nav-label nav-label--second">系统</span>
           <button type="button" disabled><i>规</i><span>对账规则</span></button>

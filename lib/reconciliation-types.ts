@@ -81,6 +81,10 @@ export type PaginatedTasks = {
   page: number;
   pageSize: number;
   total: number;
+  facets: {
+    total: number;
+    byStatus: Record<ReconciliationStatus, number>;
+  };
 };
 
 export type ApiEnvelope<T> = {

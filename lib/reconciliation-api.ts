@@ -38,9 +38,9 @@ async function unwrap<T>(response: Response): Promise<T> {
     const fallback = `请求失败（HTTP ${response.status}）`;
     const payload = await response.json().catch(() => null) as ApiErrorPayload | null;
     throw new ReconciliationApiError(
-      payload?.error.message ?? fallback,
-      payload?.error.code ?? "HTTP_ERROR",
-      payload?.error.requestId,
+      payload?.error?.message ?? fallback,
+      payload?.error?.code ?? "HTTP_ERROR",
+      payload?.error?.requestId,
       response.status,
     );
   }
@@ -167,16 +167,25 @@ class MockReconciliationApi implements ReconciliationApi {
   async listTasks(params: ListReconciliationTasksParams = {}) {
     await wait(180);
     const keyword = params.keyword?.trim().toLowerCase();
-    const filtered = mockTasks.filter((task) => {
-      const statusMatch = !params.status?.length || params.status.includes(task.status);
-      const keywordMatch = !keyword || [task.id, task.periodLabel ?? "", task.settlementFile.name, task.erpFile.name, task.createdBy.name]
+    const keywordMatches = mockTasks.filter((task) => {
+      return !keyword || [task.id, task.periodLabel ?? "", task.settlementFile.name, task.erpFile.name, task.createdBy.name]
         .some((value) => value.toLowerCase().includes(keyword));
-      return statusMatch && keywordMatch;
     });
+    const filtered = keywordMatches.filter((task) => !params.status?.length || params.status.includes(task.status));
     const page = params.page ?? 1;
     const pageSize = params.pageSize ?? 20;
     const start = (page - 1) * pageSize;
-    return { items: filtered.slice(start, start + pageSize), page, pageSize, total: filtered.length };
+    const byStatus = keywordMatches.reduce<Record<ReconciliationStatus, number>>(
+      (counts, task) => ({ ...counts, [task.status]: counts[task.status] + 1 }),
+      { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, FAILED: 0 },
+    );
+    return {
+      items: filtered.slice(start, start + pageSize),
+      page,
+      pageSize,
+      total: filtered.length,
+      facets: { total: keywordMatches.length, byStatus },
+    };
   }
 
   async getTask(taskId: string) {

@@ -79,7 +79,7 @@ QUEUED → PROCESSING → SUCCEEDED
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ```
 
-如果前后端不同域，后端需要允许前端域名进行 CORS 请求，并允许 `Idempotency-Key` 请求头。鉴权建议由现有网关或会话 Cookie 统一处理，本契约不新增登录接口。
+如果前后端不同域，后端需要允许前端域名进行 CORS 请求，并允许 `Idempotency-Key` 请求头。由于客户端使用 `credentials: include` 携带会话 Cookie，后端还必须返回 `Access-Control-Allow-Credentials: true`，且 `Access-Control-Allow-Origin` 必须是明确的前端域名，不能使用 `*`。鉴权建议由现有网关或会话 Cookie 统一处理，本契约不新增登录接口。
 
 ## 7. 建议的验收场景
 

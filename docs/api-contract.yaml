@@ -260,7 +260,7 @@ components:
                 message: { type: string, example: ERP 表单缺少必需的订单编号列 }
     PaginatedTasks:
       type: object
-      required: [items, page, pageSize, total]
+      required: [items, page, pageSize, total, facets]
       properties:
         items:
           type: array
@@ -268,6 +268,21 @@ components:
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1 }
         total: { type: integer, minimum: 0 }
+        facets:
+          type: object
+          description: 在当前 keyword 条件下、应用 status 筛选前的状态计数，用于历史任务筛选标签。
+          required: [total, byStatus]
+          properties:
+            total: { type: integer, minimum: 0 }
+            byStatus:
+              type: object
+              required: [QUEUED, PROCESSING, SUCCEEDED, NEEDS_REVIEW, FAILED]
+              properties:
+                QUEUED: { type: integer, minimum: 0 }
+                PROCESSING: { type: integer, minimum: 0 }
+                SUCCEEDED: { type: integer, minimum: 0 }
+                NEEDS_REVIEW: { type: integer, minimum: 0 }
+                FAILED: { type: integer, minimum: 0 }
     ReconciliationStatistics:
       type: object
       required:
