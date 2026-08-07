@@ -1,0 +1,91 @@
+// 文件说明：把对账业务数据转换成页面更容易展示的文字、金额和状态标签。
+import { ReconciliationApiError } from "../api/error";
+import type {
+  Money,
+  ReconciliationStatus,
+  ReconciliationTaskSummary,
+} from "./types";
+
+export type DisplayStatus = "success" | "issue" | "failed" | "processing";
+export type ReconciliationFilter = "all" | DisplayStatus;
+
+export type ReconciliationView = {
+  id: string;
+  period: string;
+  settlement: string;
+  erp: string;
+  amount: string;
+  matched: string;
+  variance: string;
+  status: DisplayStatus;
+  time: string;
+  owner: string;
+  failure?: string | null;
+};
+
+export const statusLabels: Record<DisplayStatus, string> = {
+  success: "对账成功",
+  issue: "存在差异",
+  failed: "对账失败",
+  processing: "对账中",
+};
+
+export const statusFilters: Record<Exclude<ReconciliationFilter, "all">, ReconciliationStatus[]> = {
+  success: ["SUCCEEDED"],
+  issue: ["NEEDS_REVIEW"],
+  failed: ["FAILED"],
+  processing: ["QUEUED", "PROCESSING"],
+};
+
+export function displayStatus(status: ReconciliationStatus): DisplayStatus {
+  if (status === "SUCCEEDED") return "success";
+  if (status === "NEEDS_REVIEW") return "issue";
+  if (status === "FAILED") return "failed";
+  return "processing";
+}
+
+export function formatMoney(value: Money | null, pendingLabel = "—") {
+  if (!value) return pendingLabel;
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: value.currency,
+    minimumFractionDigits: 2,
+  }).format(Number(value.value));
+}
+
+export function formatTaskTime(value: string) {
+  const date = new Date(value);
+  if (Date.now() - date.getTime() < 120_000) return "刚刚";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date).replace("/", "月").replace(",", "日");
+}
+
+export function toViewModel(task: ReconciliationTaskSummary): ReconciliationView {
+  const isPending = task.status === "QUEUED" || task.status === "PROCESSING";
+  const total = task.metrics.totalCount;
+  const matched = task.metrics.matchedCount;
+  return {
+    id: task.id,
+    period: task.periodLabel ?? "账期待识别",
+    settlement: task.settlementFile.name,
+    erp: task.erpFile.name,
+    amount: formatMoney(task.metrics.settlementAmount, isPending ? "待计算" : "—"),
+    matched: total === null || matched === null ? (isPending ? "正在解析" : "—") : `${matched.toLocaleString()} / ${total.toLocaleString()}`,
+    variance: formatMoney(task.metrics.differenceAmount),
+    status: displayStatus(task.status),
+    time: formatTaskTime(task.createdAt),
+    owner: task.createdBy.name,
+  };
+}
+
+export function requestErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ReconciliationApiError) {
+    return `${error.message}${error.requestId ? `（请求编号：${error.requestId}）` : ""}`;
+  }
+  return error instanceof Error ? error.message : fallback;
+}

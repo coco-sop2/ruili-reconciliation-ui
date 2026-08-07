@@ -1,100 +1,59 @@
-# vinext-starter
+# 锐力对账前端
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+这是锐力对账系统的纯 Vite + React 前端项目。前端负责上传结算资料和 ERP 资料、提交 CherryStudio agent skill 调用、展示对账任务状态和人工审核字段；文件解析、OCR、金额计算、对账规则和结果判断都交给 CherryStudio agent。
 
-## Prerequisites
+## 环境要求
 
 - Node.js `>=22.13.0`
 
-## Quick Start
+## 快速开始
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+本地开发服务默认运行在 `http://localhost:3000/`。
 
-## Included Shape
+## CherryStudio 接口配置
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+复制 `.env.example` 为 `.env.local`，按 CherryStudio 接收 agent skill 调用的地址配置：
 
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+VITE_CHERRYSTUDIO_AGENT_URL=http://localhost:8080/api/cherrystudio/agent/skill
+VITE_CHERRYSTUDIO_AGENT_SKILL=reconciliation.start
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+点击“开始对账”时，前端会向 `VITE_CHERRYSTUDIO_AGENT_URL` 发送 `POST multipart/form-data` 请求，包含：
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- `settlementFile`: 结算资料文件
+- `erpFile`: ERP 资料文件
+- `action`: `start_reconciliation`
+- `skill`: `VITE_CHERRYSTUDIO_AGENT_SKILL`
+- `payload`: 文件元信息和调用上下文，包含文件名、大小、MIME type 和扩展名
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+当前上传控件支持 `.xlsx`、`.xls`、`.pdf`、`.png`、`.jpg`、`.jpeg`，单个文件限制为 20 MB。前端只负责校验格式和大小，不读取文件内容；Excel 解析、PDF 解析和图片 OCR 都由 CherryStudio agent 处理。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+如果 agent 返回 `status: "NEEDS_REVIEW"` 和 `issues` 数组，前端会在“差异处理”模块展示每条字段差异，包括结算单金额、ERP 金额、差额、问题说明和人工审核操作。
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+如果不配置 `VITE_CHERRYSTUDIO_AGENT_URL`，页面会进入接口未配置状态，只展示界面，不创建真实对账任务。
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+## 目录结构
 
-## Useful Commands
+- `src/app/`: 应用入口和页面壳
+- `src/features/reconciliation/components/`: 对账页面组件
+- `src/features/reconciliation/hooks/`: 页面数据请求、提交、轮询和审核状态逻辑
+- `src/features/reconciliation/api/`: CherryStudio 请求、FormData 打包、响应适配和接口错误
+- `src/features/reconciliation/model/`: 业务类型、上传文件规则和展示数据转换
+- `src/shared/`: 全局样式等共享资源
+- `docs/`: CherryStudio agent 调用契约和飞书文档源文件
+- `public/`: 图标、OG 图等静态资源
+- `tests/`: Vite 构建产物和接口约束测试
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+## 常用命令
 
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- `npm run dev`: 启动本地开发服务
+- `npm run build`: 构建静态前端产物
+- `npm run start`: 本地预览构建产物
+- `npm run lint`: 运行代码规范检查
+- `npm test`: 构建并运行项目约束测试
