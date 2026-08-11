@@ -56,7 +56,8 @@ yarn-error.log*
 /settlement*.pdf
 /memory/
 /mineru_*.txt
-/*.output.md
+/*_output.md
+/*_error.txt
 /账单*.md
 /账单*.pdf
 /账单*.xlsx
