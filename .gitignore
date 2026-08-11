@@ -16,6 +16,7 @@
 # build output
 /out/
 /dist/
+/release/
 
 # misc
 .DS_Store
@@ -33,6 +34,10 @@ yarn-error.log*
 
 /outputs/
 /work/
+/recon/
+/reconciliation_tmp/
+/msgs.json
+/sessions_raw.json
 *.tsbuildinfo
 
 # 对账测试数据（含财务信息，不提交）
@@ -43,3 +48,15 @@ yarn-error.log*
 /zhangben*.jpeg
 /zhangben*.png
 /excel_content.txt
+
+# 本地测试与临时产物
+**/__pycache__/
+/bills/
+/erp*.xlsx
+/settlement*.pdf
+/memory/
+/mineru_*.txt
+/*.output.md
+/账单*.md
+/账单*.pdf
+/账单*.xlsx
