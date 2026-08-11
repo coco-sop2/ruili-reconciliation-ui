@@ -1,6 +1,8 @@
 // 文件说明：负责向 CherryStudio agent 发起开始对账请求，并维护当前页面会话里的任务缓存。
-import { createReconciliationFormData } from "./form-data";
+import { ReconciliationFileUploader } from "./file-uploader";
 import { ReconciliationApiError } from "./error";
+import { buildReconciliationPrompt, createReconciliationPromptPayload } from "./prompt";
+import { findCherryAgentSession } from "./agent-resolver";
 import {
   buildTaskFacets,
   cherryStudioResponseData,
@@ -19,8 +21,9 @@ import type {
 } from "../model/types";
 
 type CherryStudioConfig = {
-  endpointUrl: string;
-  skillName: string;
+  baseUrl: string;
+  uploadUrl: string;
+  apiKey: string;
 };
 
 const money = (value: string): Money => ({ currency: "CNY", value });
@@ -29,8 +32,11 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
   private readonly tasks: ReconciliationTaskSummary[] = [];
   private readonly details = new Map<string, ReconciliationTaskDetail>();
   private readonly idempotencyKeys = new WeakMap<File, WeakMap<File, string>>();
+  private readonly fileUploader: ReconciliationFileUploader;
 
-  constructor(private readonly config: CherryStudioConfig) {}
+  constructor(private readonly config: CherryStudioConfig) {
+    this.fileUploader = new ReconciliationFileUploader({ endpointUrl: config.uploadUrl });
+  }
 
   private idempotencyKeyFor(input: CreateReconciliationTaskInput) {
     let erpKeys = this.idempotencyKeys.get(input.settlementFile);
@@ -50,20 +56,23 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
   async createTask(input: CreateReconciliationTaskInput) {
     const idempotencyKey = this.idempotencyKeyFor(input);
     const submittedAt = new Date().toISOString();
-    const formData = createReconciliationFormData(input, {
-      skillName: this.config.skillName,
-      submittedAt,
-    });
+    const target = await findCherryAgentSession(
+      { baseUrl: this.config.baseUrl, apiKey: this.config.apiKey },
+      input.agentSelector,
+    );
+    const fileUrls = await this.fileUploader.uploadBoth(input, idempotencyKey);
+    const promptPayload = createReconciliationPromptPayload(input, fileUrls, submittedAt);
+    const prompt = buildReconciliationPrompt(promptPayload);
 
-    const response = await fetch(this.config.endpointUrl, {
+    const messageUrl = `${this.config.baseUrl}/v1/agents/${encodeURIComponent(target.agent.id)}/sessions/${encodeURIComponent(target.session.id)}/messages`;
+    const response = await fetch(messageUrl, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        "Idempotency-Key": idempotencyKey,
-        "X-Agent-Skill": this.config.skillName,
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
       },
-      credentials: "include",
-      body: formData,
+      body: JSON.stringify({ content: prompt }),
     });
     const payload = await readCherryStudioJson(response);
     const data = cherryStudioResponseData(payload);
@@ -74,6 +83,13 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
         payload?.error?.code ?? "CHERRYSTUDIO_AGENT_REQUEST_FAILED",
         payload?.error?.requestId ?? payload?.requestId ?? data?.requestId,
         response.status,
+      );
+    }
+
+    if (!payload) {
+      throw new ReconciliationApiError(
+        "CherryStudio agent 没有返回合法的 { matched, difference } JSON",
+        "CHERRYSTUDIO_AGENT_INVALID_RESPONSE",
       );
     }
 
@@ -117,6 +133,10 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
     const needsReviewTasks = this.tasks.filter((task) => task.status === "NEEDS_REVIEW").length;
     const failedTasks = this.tasks.filter((task) => task.status === "FAILED").length;
     const processingTasks = this.tasks.filter((task) => task.status === "QUEUED" || task.status === "PROCESSING").length;
+    const totalDifference = this.tasks.reduce(
+      (total, task) => total + Number(task.metrics.differenceAmount?.value ?? 0),
+      0,
+    );
 
     return {
       month,
@@ -127,7 +147,7 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
       processingTasks,
       autoMatchRate: this.tasks.length ? succeededTasks / this.tasks.length : 0,
       monthOverMonthRate: 0,
-      totalDifferenceAmount: money("0.00"),
+      totalDifferenceAmount: money(totalDifference.toFixed(2)),
       trend: [],
       updatedAt: new Date().toISOString(),
     };

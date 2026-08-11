@@ -37,12 +37,15 @@ test("routes reconciliation work through CherryStudio", async () => {
     reviewHook,
     apiEntry,
     cherryStudioClient,
-    formData,
     responseAdapter,
     fileRules,
     types,
     contract,
     envExample,
+    fileUploader,
+    promptBuilder,
+    agentResolver,
+    viteConfig,
   ] = await Promise.all([
     readFile(new URL("../src/app/App.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/components/StartView.tsx", import.meta.url), "utf8"),
@@ -53,15 +56,18 @@ test("routes reconciliation work through CherryStudio", async () => {
     readFile(new URL("../src/features/reconciliation/hooks/use-review-items.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/api/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/api/cherrystudio-client.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/form-data.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/api/response-adapter.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/model/file-rules.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/model/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../docs/cherrystudio-agent-contract.md", import.meta.url), "utf8"),
     readFile(new URL("../.env.example", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/reconciliation/api/file-uploader.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/reconciliation/api/prompt.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/reconciliation/api/agent-resolver.ts", import.meta.url), "utf8"),
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
   const pageSource = [app, startView, overviewView, reviewView, startHook, overviewHook, reviewHook].join("\n");
-  const apiSource = [apiEntry, cherryStudioClient, formData, responseAdapter, fileRules].join("\n");
+  const apiSource = [apiEntry, cherryStudioClient, responseAdapter, fileRules, fileUploader, promptBuilder, agentResolver, viteConfig].join("\n");
   const runtimeSource = [pageSource, apiSource].join("\n");
 
   assert.match(pageSource, /useStartReconciliation/);
@@ -78,23 +84,42 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(pageSource, /差额/);
   assert.match(pageSource, /reconciliationFileAccept/);
   assert.match(pageSource, /validateReconciliationFile/);
+  assert.match(pageSource, /Agent 名称/);
+  assert.match(pageSource, /Agent 工作目录/);
 
-  assert.match(apiSource, /createReconciliationFormData/);
+  assert.match(apiSource, /createReconciliationPromptPayload/);
+  assert.match(apiSource, /buildReconciliationPrompt/);
   assert.match(apiSource, /createTaskFromCherryStudioResponse/);
   assert.match(apiSource, /readCherryStudioJson/);
-  assert.match(apiSource, /formData\.append\("settlementFile"/);
-  assert.match(apiSource, /formData\.append\("erpFile"/);
-  assert.match(apiSource, /formData\.append\("skill"/);
-  assert.match(apiSource, /formData\.append\(\s*"payload"/);
+  assert.match(apiSource, /"X-File-Name": encodeURIComponent\(file\.name\)/);
+  assert.match(apiSource, /body: file/);
+  assert.match(apiSource, /localReconciliationUploadPlugin/);
+  assert.match(apiSource, /\/api\/reconciliation\/upload/);
+  assert.match(apiSource, /uploadBoth/);
+  assert.match(apiSource, /settlementFileUrl/);
+  assert.match(apiSource, /erpFileUrl/);
+  assert.match(apiSource, /url: fileUrls\.settlementFileUrl/);
+  assert.match(apiSource, /url: fileUrls\.erpFileUrl/);
+  assert.doesNotMatch(cherryStudioClient, /FormData|multipart\/form-data/);
+  assert.match(apiSource, /JSON\.stringify\(\{ content: prompt \}\)/);
   assert.match(apiSource, /method: "POST"/);
-  assert.match(apiSource, /VITE_CHERRYSTUDIO_AGENT_URL/);
-  assert.match(apiSource, /VITE_CHERRYSTUDIO_AGENT_SKILL/);
+  assert.match(apiSource, /VITE_CHERRYSTUDIO_API_KEY/);
+  assert.match(apiSource, /findCherryAgentSession/);
+  assert.match(apiSource, /\/v1\/agents\?limit=100&offset=/);
+  assert.match(apiSource, /createCherryAgentSession/);
+  assert.match(apiSource, /buildReconciliationSessionName/);
+  assert.match(apiSource, /\/v1\/agents\/\$\{encodeURIComponent\(agent\.id\)\}\/sessions/);
+  assert.match(apiSource, /body: JSON\.stringify\(\{ name: buildReconciliationSessionName\(\) \}\)/);
+  assert.match(apiSource, /\["data", "agents"\]/);
+  assert.match(apiSource, /normalizePath/);
   assert.match(apiSource, /issues/);
   assert.match(apiSource, /summary/);
   assert.match(apiSource, /reviewItemsFromResponse/);
-  assert.match(apiSource, /"Idempotency-Key": idempotencyKey/);
-  assert.match(apiSource, /"X-Agent-Skill": this\.config\.skillName/);
-  assert.match(apiSource, /credentials: "include"/);
+  assert.doesNotMatch(cherryStudioClient, /"Idempotency-Key"/);
+  assert.match(apiSource, /Authorization: `Bearer \$\{this\.config\.apiKey\}`/);
+  assert.match(apiSource, /"Content-Type": "application\/json"/);
+  assert.match(apiSource, /matched/);
+  assert.match(apiSource, /difference/);
   assert.match(apiSource, /\.pdf/);
   assert.match(apiSource, /\.png/);
   assert.match(apiSource, /\.jpeg/);
@@ -104,9 +129,9 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.doesNotMatch(runtimeSource, /\.\.\/\.\.\/lib|\.\/reconciliation-/);
 
   assert.match(types, /"QUEUED"[\s\S]*"PROCESSING"[\s\S]*"SUCCEEDED"[\s\S]*"NEEDS_REVIEW"[\s\S]*"FAILED"/);
-  assert.match(contract, /VITE_CHERRYSTUDIO_AGENT_URL/);
-  assert.match(contract, /X-Agent-Skill/);
-  assert.match(contract, /start_reconciliation/);
+  assert.match(contract, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME/);
+  assert.match(contract, /Authorization: Bearer/);
+  assert.match(contract, /\/v1\/agents\//);
   assert.match(contract, /NEEDS_REVIEW/);
   assert.match(contract, /settlementValue/);
   assert.match(contract, /erpValue/);
@@ -114,7 +139,9 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(contract, /Excel/);
   assert.match(contract, /PDF/);
   assert.match(contract, /extension/);
-  assert.match(envExample, /VITE_CHERRYSTUDIO_AGENT_URL=/);
-  assert.match(envExample, /VITE_CHERRYSTUDIO_AGENT_SKILL=reconciliation\.start/);
+  assert.match(envExample, /VITE_RECONCILIATION_UPLOAD_URL=/);
+  assert.match(envExample, /VITE_CHERRYSTUDIO_API_KEY=/);
+  assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=/);
+  assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=/);
   assert.doesNotMatch(envExample, /VITE_API_BASE_URL/);
 });

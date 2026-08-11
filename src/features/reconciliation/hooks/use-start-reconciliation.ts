@@ -13,6 +13,12 @@ type UseStartReconciliationOptions = {
 export function useStartReconciliation({ onComplete }: UseStartReconciliationOptions) {
   const [settlementFile, setSettlementFile] = useState<File | null>(null);
   const [erpFile, setErpFile] = useState<File | null>(null);
+  const [agentName, setAgentName] = useState(
+    (import.meta.env.VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME ?? "").trim(),
+  );
+  const [agentWorkspace, setAgentWorkspace] = useState(
+    (import.meta.env.VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE ?? "").trim(),
+  );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,6 +46,10 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
 
   const startReconciliation = async () => {
     if (!settlementFile || !erpFile || running) return;
+    if (!agentName.trim() && !agentWorkspace.trim()) {
+      setError("请至少填写 Agent 名称或工作目录");
+      return;
+    }
 
     const validationError = validateReconciliationFile(settlementFile) ?? validateReconciliationFile(erpFile);
     if (validationError) {
@@ -50,7 +60,14 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
     setRunning(true);
     setError("");
     try {
-      const task = await reconciliationApi.createTask({ settlementFile, erpFile });
+      const task = await reconciliationApi.createTask({
+        settlementFile,
+        erpFile,
+        agentSelector: {
+          name: agentName.trim() || undefined,
+          workspace: agentWorkspace.trim() || undefined,
+        },
+      });
       onComplete(task);
     } catch (requestError) {
       setError(requestErrorMessage(requestError, "创建对账任务失败，请稍后重试"));
@@ -61,8 +78,12 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
   return {
     settlementFile,
     erpFile,
+    agentName,
+    agentWorkspace,
     running,
     error,
+    setAgentName,
+    setAgentWorkspace,
     handleSettlementFileChange: createFileChangeHandler(setSettlementFile, "结算资料"),
     handleErpFileChange: createFileChangeHandler(setErpFile, "ERP 资料"),
     startReconciliation,

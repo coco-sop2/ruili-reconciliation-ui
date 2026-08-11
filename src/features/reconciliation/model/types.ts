@@ -86,6 +86,10 @@ export type ReconciliationStatistics = {
 export type CreateReconciliationTaskInput = {
   settlementFile: File;
   erpFile: File;
+  agentSelector: {
+    name?: string;
+    workspace?: string;
+  };
 };
 
 export type ListReconciliationTasksParams = {
