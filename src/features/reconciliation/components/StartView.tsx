@@ -7,6 +7,7 @@ import {
   reconciliationFileHint,
 } from "../model/file-rules";
 import { FileCard } from "./FileCard";
+import { ProcessLogPanel } from "./ProcessLogPanel";
 
 export function StartView() {
   const {
@@ -20,7 +21,7 @@ export function StartView() {
     handleSettlementFileChange,
     handleErpFileChange,
   } = useStartReconciliation();
-  const { running, error, startReconciliation } = useReconciliationTask();
+  const { running, error, logs, startReconciliation } = useReconciliationTask();
 
   const canStart = Boolean(settlementFile && erpFile && (agentName.trim() || agentWorkspace.trim()));
 
@@ -122,6 +123,9 @@ export function StartView() {
 
       {formError && <div className="api-error" role="alert"><b>文件校验失败</b><span>{formError}</span></div>}
       {error && <div className="api-error" role="alert"><b>提交失败</b><span>{error}</span></div>}
+
+      {/* 处理日志：保持在发起对账界面；任务切页不中断，切回仍显示完整日志 */}
+      <ProcessLogPanel logs={logs} running={running} />
 
       <div className="rule-note">
         <span>职责边界</span>

@@ -71,6 +71,9 @@ button { color: inherit; }
 .topbar > div:first-child strong { color: #3b474c; }
 .api-indicator { margin-left: 8px; padding: 3px 6px; border: 1px solid #d9a48f; color: #b65b3d; background: #fff7f3; border-radius: 3px; font-size: 8px; font-style: normal; font-weight: 700; letter-spacing: .04em; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+.running-indicator { height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid #d9a48f; border-radius: 6px; background: #fff7f3; color: #b65b3d; font-size: 10px; font-weight: 700; cursor: pointer; }
+.running-indicator:hover { background: #ffefe6; }
+.running-indicator__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(236,107,69,.18); animation: pulse 1.4s ease-in-out infinite; }
 .help-button, .notification-button { border: 0; background: transparent; color: #647178; cursor: pointer; font-size: 11px; }
 .help-button span { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1px solid #a8b1b5; border-radius: 50%; margin-right: 5px; }
 .notification-button { width: 32px; height: 32px; position: relative; font-size: 18px; }
