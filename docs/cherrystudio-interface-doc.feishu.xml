@@ -1,7 +1,7 @@
 <title>锐力对账前端代码结构与 CherryStudio 接口说明</title>
 
 <callout emoji="📌" background-color="light-blue" border-color="blue">
-  <p>这份文档给接手项目的人看：先说明现在每个文件夹是干嘛的，再说明“开始对账”按钮怎么把两份用户文件发给 CherryStudio agent。当前前端对外只有一个真实网络请求：点击“开始对账”后发送 <code>POST multipart/form-data</code>。</p>
+  <p>这份文档给接手项目的人看：先说明现在每个文件夹是干嘛的，再说明“开始对账”按钮如何上传两份文件、匹配 CherryStudio Agent 与唯一 session，并发送对账 prompt。</p>
 </callout>
 
 <h1>1. 当前清理结果</h1>
@@ -96,37 +96,35 @@ flowchart LR
 
 <h1>6. 对外接口：开始对账 POST</h1>
 
-<p>当前真正发到 CherryStudio 的网络接口只有一个：用户点击“开始对账”按钮后，前端向 <code>VITE_CHERRYSTUDIO_AGENT_URL</code> 发送 <code>POST multipart/form-data</code>。前端不会读取文件内容，也不会自己算金额。</p>
+<p>用户点击“开始对账”后，前端先上传两份文件，再按页面填写的 Agent 名称和/或工作目录调用 CherryStudio API 匹配唯一 Agent，读取它的唯一 session，最后向 messages 接口发送 JSON prompt。前端不会读取文件内容，也不会自己算金额。</p>
 
 <table>
   <thead>
     <tr><th background-color="light-gray">项目</th><th background-color="light-gray">说明</th></tr>
   </thead>
   <tbody>
-    <tr><td>请求方法</td><td><code>POST</code></td></tr>
-    <tr><td>请求地址</td><td>由 <code>VITE_CHERRYSTUDIO_AGENT_URL</code> 配置。</td></tr>
-    <tr><td>请求格式</td><td><code>multipart/form-data</code>，由浏览器自动生成边界，不要手动设置 <code>Content-Type</code>。</td></tr>
-    <tr><td>skill 名称</td><td>由 <code>VITE_CHERRYSTUDIO_AGENT_SKILL</code> 配置，默认 <code>reconciliation.start</code>。</td></tr>
-    <tr><td>认证方式</td><td>当前代码使用 <code>credentials: include</code>，如果 CherryStudio 需要 cookie 或同域登录态，可以带上。</td></tr>
+    <tr><td>Agent 查询</td><td><code>GET /v1/agents?limit=100&amp;offset=0</code></td></tr>
+    <tr><td>Session 查询</td><td><code>GET /v1/agents/{agentId}/sessions</code></td></tr>
+    <tr><td>消息请求</td><td><code>POST /v1/agents/{agentId}/sessions/{sessionId}/messages</code></td></tr>
+    <tr><td>请求格式</td><td><code>application/json</code>，请求体为 <code>{ "content": prompt }</code>。</td></tr>
+    <tr><td>认证方式</td><td><code>Authorization: Bearer &lt;API Key&gt;</code></td></tr>
   </tbody>
 </table>
 
-<h1>7. FormData 里有什么</h1>
+<h1>7. Agent 选择与 prompt</h1>
 
 <table>
   <thead>
-    <tr><th background-color="light-gray">字段</th><th background-color="light-gray">类型</th><th background-color="light-gray">给 CherryStudio 的含义</th></tr>
+    <tr><th background-color="light-gray">输入</th><th background-color="light-gray">匹配方式</th><th background-color="light-gray">说明</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>action</code></td><td>字符串</td><td>固定为 <code>start_reconciliation</code>，表示本次动作是“开始对账”。</td></tr>
-    <tr><td><code>skill</code></td><td>字符串</td><td>告诉 CherryStudio 要调用哪个 agent skill。</td></tr>
-    <tr><td><code>payload</code></td><td>JSON 字符串</td><td>只放说明信息，比如来源、提交时间、文件名、大小、MIME type、扩展名。这里没有文件内容。</td></tr>
-    <tr><td><code>settlementFile</code></td><td>真实文件</td><td>用户上传的结算资料，可能是 Excel、PDF、PNG、JPG。</td></tr>
-    <tr><td><code>erpFile</code></td><td>真实文件</td><td>用户上传的 ERP 资料，可能是 Excel、PDF、PNG、JPG。</td></tr>
+    <tr><td>Agent 名称</td><td>精确匹配 <code>agent.name</code></td><td>默认可由环境变量预填。</td></tr>
+    <tr><td>Agent 工作目录</td><td>规范化后匹配 <code>accessible_paths</code></td><td>名称重复时用于消除歧义。</td></tr>
+    <tr><td>文件 URL</td><td>写入 prompt</td><td>ERP 与结算单文件先由上传接口生成可访问 URL。</td></tr>
   </tbody>
 </table>
 
-<p>简单理解：<code>payload</code> 是文件说明书，<code>settlementFile</code> 和 <code>erpFile</code> 才是真正的文件本体。</p>
+<p>简单理解：页面输入负责定位 Agent；前端自动取得唯一 session；<code>buildReconciliationPrompt</code> 负责把两份文件 URL 变成消息正文。</p>
 
 <h1>8. api 目录每个文件怎么处理接口</h1>
 
@@ -137,7 +135,8 @@ flowchart LR
   <tbody>
     <tr><td><code>api/index.ts</code></td><td>统一导出 <code>reconciliationApi</code>。如果配置了 CherryStudio 地址，就用真实 POST 客户端；没配置就用禁用态客户端。</td><td>以后如果要切换接口来源，优先改这里。</td></tr>
     <tr><td><code>api/types.ts</code></td><td>定义前端统一 API 形状：<code>createTask</code>、<code>listTasks</code>、<code>getTask</code>、<code>getStatistics</code>。</td><td>以后新增“提交审核结果”等能力，先在这里补方法。</td></tr>
-    <tr><td><code>api/form-data.ts</code></td><td>把两份文件和三个文字字段打包成 <code>FormData</code>。</td><td>CherryStudio 要改字段名、增加说明参数时改这里。</td></tr>
+    <tr><td><code>api/agent-resolver.ts</code></td><td>分页读取 Agent 与 session，并按名称/工作目录唯一匹配。</td><td>CherryStudio 列表返回结构或选择规则变化时改这里。</td></tr>
+    <tr><td><code>api/prompt.ts</code></td><td>把上传后的两份文件 URL 填入对账提示词。</td><td>主 Agent 提示词需要调整时改这里。</td></tr>
     <tr><td><code>api/cherrystudio-client.ts</code></td><td>真正执行 <code>fetch</code> 请求，并维护当前页面会话里的任务列表和详情。</td><td>CherryStudio 地址、请求头、错误处理、未来查询接口接入时改这里。</td></tr>
     <tr><td><code>api/response-adapter.ts</code></td><td>把 agent 返回的 JSON 转成前端能展示的任务、金额统计、人工审核字段。</td><td>agent 返回字段名变了，或审核字段要扩展时改这里。</td></tr>
     <tr><td><code>api/disabled-client.ts</code></td><td>没有配置 CherryStudio 地址时使用。它不会造假数据，创建任务会返回“接口未配置”错误，列表和统计为空。</td><td>一般不用改，除非要改变未配置接口时的页面行为。</td></tr>
@@ -152,7 +151,7 @@ flowchart LR
     <tr><th background-color="light-gray">方法</th><th background-color="light-gray">当前行为</th><th background-color="light-gray">后续真实化方向</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>createTask(input)</code></td><td>真正发起 CherryStudio POST，请求里带两份用户文件。</td><td>保持作为“开始对账”入口。</td></tr>
+    <tr><td><code>createTask(input)</code></td><td>解析 Agent/session、上传两份文件并发送 CherryStudio prompt。</td><td>保持作为“开始对账”入口。</td></tr>
     <tr><td><code>listTasks(params)</code></td><td>读取当前页面会话内缓存的任务列表。</td><td>如果 CherryStudio 或后端提供任务列表接口，再改成真实查询。</td></tr>
     <tr><td><code>getTask(taskId)</code></td><td>读取当前页面会话内缓存的任务详情。</td><td>如果需要刷新 agent 处理进度，可以改成按任务 ID 查询真实状态。</td></tr>
     <tr><td><code>getStatistics(month)</code></td><td>根据当前页面会话内任务做简单统计。</td><td>如果需要跨天、跨用户、跨账期统计，应接真实统计接口。</td></tr>

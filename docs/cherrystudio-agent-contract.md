@@ -1,145 +1,97 @@
 # CherryStudio Agent 调用契约
 
-前端只负责把用户选择的两份对账资料文件提交给 CherryStudio。文件可以是 Excel、PDF 或图片；文件解析、字段识别、图片 OCR、对账计算、结果判断和后续状态更新都由 CherryStudio agent skill 负责。
+前端负责上传用户选择的结算资料和 ERP 资料，再把两个可访问的文件 URL 写入对账提示词，最后调用指定 CherryStudio agent session 的消息接口。Excel、PDF、图片解析和金额判断均由 agent 完成。
 
 ## 环境变量
 
 ```env
-VITE_CHERRYSTUDIO_AGENT_URL=http://localhost:8080/api/cherrystudio/agent/skill
-VITE_CHERRYSTUDIO_AGENT_SKILL=reconciliation.start
+VITE_RECONCILIATION_UPLOAD_URL=
+VITE_CHERRYSTUDIO_BASE_URL=http://127.0.0.1:24333
+VITE_CHERRYSTUDIO_API_KEY=your-api-key
+VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=锐力体育
+VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
 ```
 
-如果 `VITE_CHERRYSTUDIO_AGENT_URL` 为空，前端进入本地空数据模式，不会创建真实任务。
+页面允许填写 Agent 名称和工作目录。默认值来自 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME` 与 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE`。API Base 或 API Key 为空时，前端进入接口未配置状态。上传地址为空时使用 Vite 内置本地上传端点。
 
-当前上传控件支持的文件后缀为 `.xlsx`、`.xls`、`.pdf`、`.png`、`.jpg`、`.jpeg`。单个文件限制为 20 MB。前端只校验格式和大小，不读取文件内容。
+> `VITE_*` 变量会进入浏览器构建产物。当前方式适用于本机受控环境；公开部署时应由服务端代理 CherryStudio 请求，避免向浏览器暴露 API Key。
 
-## 开始对账请求
+## 第一步：上传文件
 
-点击“开始对账”按钮后，前端会发送：
-
-```http
-POST {VITE_CHERRYSTUDIO_AGENT_URL}
-Content-Type: multipart/form-data
-Accept: application/json
-Idempotency-Key: <uuid>
-X-Agent-Skill: <VITE_CHERRYSTUDIO_AGENT_SKILL>
-```
-
-表单字段：
+默认情况下，前端把原始文件作为请求体发送到 `POST /api/reconciliation/upload`。开发/预览服务器将文件写入操作系统临时目录，并返回可供本机 CherryStudio 读取的 HTTP URL。配置 `VITE_RECONCILIATION_UPLOAD_URL` 后改用该外部服务。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `action` | string | 固定为 `start_reconciliation` |
-| `skill` | string | 要调用的 CherryStudio agent skill 名称 |
-| `payload` | JSON string | 调用上下文和文件元信息 |
-| `settlementFile` | file | 用户上传的结算资料文件，可以是 Excel、PDF 或图片 |
-| `erpFile` | file | 用户上传的 ERP 资料文件，可以是 Excel、PDF 或图片 |
+| 请求体 | file | 原始文件二进制 |
+| `X-File-Name` | header | URL 编码后的文件名 |
+| `X-File-Role` | header | `settlementFile` 或 `erpFile` |
 
-`payload` 示例：
+上传接口需要返回 HTTP/HTTPS URL。支持 `url`、`fileUrl`、`downloadUrl`，也支持这些字段位于 `data` 或 `file` 对象中。
 
-```json
-{
-  "source": "ruili-reconciliation-ui",
-  "action": "start_reconciliation",
-  "skill": "reconciliation.start",
-  "submittedAt": "2026-08-07T06:30:00.000Z",
-  "resultMode": "placeholder",
-  "files": {
-    "settlementFile": {
-      "name": "settlement.pdf",
-      "size": 102400,
-      "type": "application/pdf",
-      "extension": ".pdf"
-    },
-    "erpFile": {
-      "name": "erp-screenshot.png",
-      "size": 204800,
-      "type": "image/png",
-      "extension": ".png"
-    }
-  }
-}
-```
+当前上传控件支持 Excel（`.xlsx`、`.xls`）、PDF 和图片（`.png`、`.jpg`、`.jpeg`），单个文件最大 20 MB。文件元数据包含 `name`、`size`、`type`、`extension` 和 `url`。
 
-## 推荐返回结构
+## 第二步：生成 prompt
 
-当前前端已经可以识别 `status`、`summary` 和 `issues`。当 agent 返回 `NEEDS_REVIEW` 时，前端会进入“差异处理”模块，逐字段展示结算单金额、ERP 金额和差额。
+`createReconciliationPromptPayload` 把上传 URL 填入：
 
-对账成功且无需人工审核：
+- `payload.files.erpFile.url`
+- `payload.files.settlementFile.url`
+
+`buildReconciliationPrompt` 随后生成 agent 消息，明确 ERP 与结算单 URL、MinerU Subagent 建议，以及最终只允许返回以下 JSON：
 
 ```json
 {
-  "success": true,
-  "taskId": "agent_task_123",
-  "status": "SUCCEEDED",
-  "message": "对账完成，无需人工处理",
-  "summary": {
-    "settlementAmount": "12680.00",
-    "erpAmount": "12680.00",
-    "differenceAmount": "0.00",
-    "totalCount": 128,
-    "matchedCount": 128,
-    "differenceCount": 0
-  },
-  "issues": []
+  "matched": true,
+  "difference": 0.00
 }
 ```
 
-对账完成但需要人工审核：
+`difference` 的含义固定为“ERP 金额 - 结算单金额”，单位为元。
+
+## 第三步：解析 Agent 与 session
+
+前端分页调用：
+
+```http
+GET /v1/agents?limit=100&offset=0
+Authorization: Bearer <VITE_CHERRYSTUDIO_API_KEY>
+```
+
+按名称做精确匹配；填写工作目录时，会将 `/`、`\\`、`.`、`..` 和 Windows 路径大小写规范化后，与 `accessible_paths` 比较。名称有重复时必须同时填写工作目录。
+
+当前 CherryStudio 企业版返回 `{ data, total }`，代码也兼容 `{ agents, total }`。匹配到唯一 Agent 后，前端分页调用 `/v1/agents/{agentId}/sessions`，并要求恰好返回一个 session。
+
+## 第四步：调用 CherryStudio session
+
+默认请求地址：
+
+```text
+http://127.0.0.1:24333/v1/agents/{agentId}/sessions/{sessionId}/messages
+```
+
+请求：
+
+```http
+POST /v1/agents/{agentId}/sessions/{sessionId}/messages
+Authorization: Bearer <VITE_CHERRYSTUDIO_API_KEY>
+Content-Type: application/json
+Accept: application/json
+```
+
+Messages 请求不发送自定义 `Idempotency-Key` 请求头，避免触发 CherryStudio CORS 预检拒绝。
 
 ```json
 {
-  "success": true,
-  "taskId": "agent_task_124",
-  "status": "NEEDS_REVIEW",
-  "message": "存在金额差异，需要人工审核",
-  "summary": {
-    "settlementAmount": "12680.00",
-    "erpAmount": "12580.00",
-    "differenceAmount": "100.00",
-    "totalCount": 128,
-    "matchedCount": 125,
-    "differenceCount": 3
-  },
-  "issues": [
-    {
-      "id": "issue_001",
-      "rowLabel": "订单 A001",
-      "fieldName": "实收金额",
-      "settlementValue": "100.00",
-      "erpValue": "80.00",
-      "differenceAmount": "20.00",
-      "message": "结算单实收金额与 ERP 实收金额不一致",
-      "suggestion": "请核对订单 A001 是否存在退款或渠道手续费",
-      "status": "PENDING"
-    }
-  ]
+  "content": "由 buildReconciliationPrompt 生成的完整提示词"
 }
 ```
 
-`issues` 中每一项会显示在前端“差异处理”表格里。
+## 返回结果适配
 
-| 字段 | 说明 |
-| --- | --- |
-| `rowLabel` | 人工能识别的单据或行标签，例如订单号 |
-| `fieldName` | 有差异的字段名，例如实收金额、手续费、退款金额 |
-| `settlementValue` | 结算单里的金额 |
-| `erpValue` | ERP 里的金额 |
-| `differenceAmount` | 差额 |
-| `message` | 差异说明 |
-| `suggestion` | 建议人工怎么核对 |
-| `status` | 默认 `PENDING`，也可返回 `APPROVED` 或 `IGNORED` |
+前端接受直接返回 `{ "matched": ..., "difference": ... }`，也兼容该 JSON 字符串位于常见的 `content`、`data.content`、`message.content` 或 `choices[0].message.content` 中。
 
-失败响应建议包含：
+- `matched: true` 且 `difference: 0` 映射为 `SUCCEEDED`。
+- `matched: false` 且 `difference` 非零映射为 `NEEDS_REVIEW`，并生成一条汇总差异项。
+- `matched` 与 `difference` 自相矛盾、金额不是有限数字，或 agent 输出不是合法 JSON 时，请求会按无效响应失败。
 
-```json
-{
-  "error": {
-    "code": "AGENT_SKILL_FAILED",
-    "message": "Agent skill 调用失败",
-    "requestId": "req_123"
-  }
-}
-```
-
-前端不会根据上传文件自行计算对账结果，也不会推断成功、有差异或失败状态。
+现有页面模型仍使用 `differenceAmount`、`settlementValue`、`erpValue` 和人工审核列表；简化后的 agent 返回只提供总差额，所以两个绝对金额保持为空。

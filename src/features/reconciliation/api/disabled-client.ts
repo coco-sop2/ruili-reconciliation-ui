@@ -2,6 +2,7 @@
 import { ReconciliationApiError } from "./error";
 import type { ReconciliationApi } from "./types";
 import type {
+  CreateReconciliationTaskInput,
   ListReconciliationTasksParams,
   Money,
   ReconciliationStatus,
@@ -14,7 +15,8 @@ const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resol
 const disabledTasks: ReconciliationTaskSummary[] = [];
 
 export class DisabledReconciliationApi implements ReconciliationApi {
-  async createTask() {
+  async createTask(input: CreateReconciliationTaskInput): Promise<ReconciliationTaskSummary> {
+    void input;
     await wait(120);
     throw new ReconciliationApiError(
       "未配置真实后端接口，无法创建对账任务",

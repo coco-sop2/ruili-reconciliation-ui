@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/start-dev.mjs",
     "build": "vite build",
     "start": "vite preview",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",

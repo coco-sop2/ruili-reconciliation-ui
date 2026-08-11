@@ -2,15 +2,21 @@
 import { CherryStudioReconciliationApi } from "./cherrystudio-client";
 import { DisabledReconciliationApi } from "./disabled-client";
 import type { ReconciliationApi } from "./types";
+import { localReconciliationUploadPath } from "./local-upload-path";
 
-const cherryStudioAgentUrl = (import.meta.env.VITE_CHERRYSTUDIO_AGENT_URL ?? "").trim();
-const cherryStudioSkillName = (import.meta.env.VITE_CHERRYSTUDIO_AGENT_SKILL ?? "reconciliation.start").trim();
-export const usingDisabledApi = !cherryStudioAgentUrl;
+const reconciliationUploadUrl = (import.meta.env.VITE_RECONCILIATION_UPLOAD_URL || localReconciliationUploadPath).trim();
+const cherryStudioBaseUrl = (import.meta.env.VITE_CHERRYSTUDIO_BASE_URL ?? "http://127.0.0.1:24333")
+  .trim()
+  .replace(/\/$/, "");
+const cherryStudioApiKey = (import.meta.env.VITE_CHERRYSTUDIO_API_KEY ?? "").trim();
 
-export const reconciliationApi: ReconciliationApi = cherryStudioAgentUrl
+export const usingDisabledApi = !cherryStudioBaseUrl || !reconciliationUploadUrl || !cherryStudioApiKey;
+
+export const reconciliationApi: ReconciliationApi = !usingDisabledApi
   ? new CherryStudioReconciliationApi({
-      endpointUrl: cherryStudioAgentUrl,
-      skillName: cherryStudioSkillName || "reconciliation.start",
+      baseUrl: cherryStudioBaseUrl,
+      uploadUrl: reconciliationUploadUrl,
+      apiKey: cherryStudioApiKey,
     })
   : new DisabledReconciliationApi();
 

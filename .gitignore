@@ -34,3 +34,12 @@ yarn-error.log*
 /outputs/
 /work/
 *.tsbuildinfo
+
+# 对账测试数据（含财务信息，不提交）
+/账目*.pdf
+/账目*.xlsx
+/账目*.xls
+/zhangben*.jpg
+/zhangben*.jpeg
+/zhangben*.png
+/excel_content.txt

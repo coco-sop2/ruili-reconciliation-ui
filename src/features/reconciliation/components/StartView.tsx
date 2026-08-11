@@ -15,8 +15,12 @@ export function StartView({ onComplete }: StartViewProps) {
   const {
     settlementFile,
     erpFile,
+    agentName,
+    agentWorkspace,
     running,
     error,
+    setAgentName,
+    setAgentWorkspace,
     handleSettlementFileChange,
     handleErpFileChange,
     startReconciliation,
@@ -47,6 +51,38 @@ export function StartView({ onComplete }: StartViewProps) {
         <div className={settlementFile && erpFile ? "flow-item flow-item--active" : "flow-item"}><b>03</b><span>提交后端任务</span></div>
       </div>
 
+      <section className="agent-selector" aria-labelledby="agent-selector-title">
+        <div className="agent-selector__intro">
+          <span>CHERRYSTUDIO TARGET</span>
+          <div>
+            <h2 id="agent-selector-title">选择对账 Agent</h2>
+            <p>按名称或工作目录匹配；名称可能重复时请同时填写两项。</p>
+          </div>
+        </div>
+        <div className="agent-selector__fields">
+          <label>
+            <span>Agent 名称</span>
+            <input
+              type="text"
+              value={agentName}
+              onChange={(event) => setAgentName(event.target.value)}
+              placeholder="例如：锐力体育"
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span>Agent 工作目录</span>
+            <input
+              type="text"
+              value={agentWorkspace}
+              onChange={(event) => setAgentWorkspace(event.target.value)}
+              placeholder="可选，用于消除同名 Agent 歧义"
+              autoComplete="off"
+            />
+          </label>
+        </div>
+      </section>
+
       <div className="file-grid">
         <FileCard
           eyebrow="01"
@@ -76,7 +112,7 @@ export function StartView({ onComplete }: StartViewProps) {
             <small>{settlementFile && erpFile ? "点击后仅创建服务端任务，结果将异步返回" : "系统需要同时提交结算资料和 ERP 资料"}</small>
           </div>
         </div>
-        <button type="button" className="primary-button" disabled={!settlementFile || !erpFile || running} onClick={startReconciliation}>
+        <button type="button" className="primary-button" disabled={!settlementFile || !erpFile || (!agentName.trim() && !agentWorkspace.trim()) || running} onClick={startReconciliation}>
           {running ? <><span className="spinner" /> 正在提交任务</> : <>开始对账<span>→</span></>}
         </button>
       </section>
