@@ -1,10 +1,13 @@
 // 文件说明：按 Agent 名称和/或工作目录查询 CherryStudio Agent，并取得它的唯一 session。
 import { ReconciliationApiError } from "./error";
+import type { ReconciliationProcessLogLevel } from "../model/types";
 
 export type AgentSelector = {
   name?: string;
   workspace?: string;
 };
+
+export type AgentProgressCallback = (level: ReconciliationProcessLogLevel, message: string) => void;
 
 type CherryAgent = {
   id: string;
@@ -146,6 +149,7 @@ function buildReconciliationSessionName() {
 export async function findCherryAgentSession(
   config: AgentResolverConfig,
   selector: AgentSelector,
+  onLog?: AgentProgressCallback,
 ) {
   const name = selector.name?.trim();
   const workspace = selector.workspace?.trim();
@@ -155,6 +159,8 @@ export async function findCherryAgentSession(
       "CHERRYSTUDIO_AGENT_SELECTOR_REQUIRED",
     );
   }
+
+  onLog?.("info", `正在查询 CherryStudio Agent：${name ? `名称「${name}」` : ""}${name && workspace ? "、" : ""}${workspace ? `工作目录「${workspace}」` : ""}`);
 
   const agents = await listAll<CherryAgent>(
     (offset) => `${config.baseUrl}/v1/agents?limit=100&offset=${offset}`,
@@ -185,6 +191,9 @@ export async function findCherryAgentSession(
   }
 
   const agent = matches[0];
+  onLog?.("success", `已匹配 Agent：「${agent.name}」（${agent.id}）`);
+  onLog?.("info", "正在创建本次对账会话…");
   const session = await createCherryAgentSession(config, agent);
+  onLog?.("success", `会话已创建：${session.id}`);
   return { agent, session };
 }

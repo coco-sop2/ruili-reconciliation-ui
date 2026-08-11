@@ -15,6 +15,7 @@ import type {
   ListReconciliationTasksParams,
   Money,
   PaginatedTasks,
+  ReconciliationProcessLogLevel,
   ReconciliationStatistics,
   ReconciliationTaskDetail,
   ReconciliationTaskSummary,
@@ -56,15 +57,23 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
   async createTask(input: CreateReconciliationTaskInput) {
     const idempotencyKey = this.idempotencyKeyFor(input);
     const submittedAt = new Date().toISOString();
+    const emitLog = (level: ReconciliationProcessLogLevel, message: string) => {
+      input.onProgress?.({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), level, message });
+    };
+
+    emitLog("info", "开始创建对账任务…");
     const target = await findCherryAgentSession(
       { baseUrl: this.config.baseUrl, apiKey: this.config.apiKey },
       input.agentSelector,
+      emitLog,
     );
-    const fileUrls = await this.fileUploader.uploadBoth(input, idempotencyKey);
+    const fileUrls = await this.fileUploader.uploadBoth(input, idempotencyKey, emitLog);
     const promptPayload = createReconciliationPromptPayload(input, fileUrls, submittedAt);
     const prompt = buildReconciliationPrompt(promptPayload);
+    emitLog("info", "对账提示词已生成，正在提交至 Agent…");
 
     const messageUrl = `${this.config.baseUrl}/v1/agents/${encodeURIComponent(target.agent.id)}/sessions/${encodeURIComponent(target.session.id)}/messages`;
+    emitLog("info", "已提交请求，Agent 处理中（文件识别与金额比对中，处理过程将实时显示）…");
     const response = await fetch(messageUrl, {
       method: "POST",
       headers: {
@@ -74,10 +83,11 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
       },
       body: JSON.stringify({ content: prompt }),
     });
-    const payload = await readCherryStudioJson(response);
+    const payload = await readCherryStudioJson(response, emitLog);
     const data = cherryStudioResponseData(payload);
 
     if (!response.ok) {
+      emitLog("error", `CherryStudio 请求失败（HTTP ${response.status}）`);
       throw new ReconciliationApiError(
         payload?.error?.message ?? `CherryStudio 请求失败（HTTP ${response.status}）`,
         payload?.error?.code ?? "CHERRYSTUDIO_AGENT_REQUEST_FAILED",
@@ -87,6 +97,7 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
     }
 
     if (!payload) {
+      emitLog("error", "Agent 没有返回合法的对账 JSON");
       throw new ReconciliationApiError(
         "CherryStudio agent 没有返回合法的 { matched, difference } JSON",
         "CHERRYSTUDIO_AGENT_INVALID_RESPONSE",
@@ -94,6 +105,7 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
     }
 
     const task = createTaskFromCherryStudioResponse(input, payload, idempotencyKey, submittedAt);
+    emitLog("success", `对账完成：${task.metrics.differenceAmount?.value ?? "—"} 元${task.status === "SUCCEEDED" ? "（金额一致）" : "（存在差异）"}`);
     this.tasks.unshift(task);
     this.details.set(task.id, task);
     return task;

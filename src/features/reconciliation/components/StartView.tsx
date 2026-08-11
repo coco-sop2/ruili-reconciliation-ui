@@ -6,6 +6,7 @@ import {
 } from "../model/file-rules";
 import type { ReconciliationTaskSummary } from "../model/types";
 import { FileCard } from "./FileCard";
+import { ProcessLogPanel } from "./ProcessLogPanel";
 
 type StartViewProps = {
   onComplete: (task: ReconciliationTaskSummary) => void;
@@ -19,6 +20,7 @@ export function StartView({ onComplete }: StartViewProps) {
     agentWorkspace,
     running,
     error,
+    logs,
     setAgentName,
     setAgentWorkspace,
     handleSettlementFileChange,
@@ -118,6 +120,8 @@ export function StartView({ onComplete }: StartViewProps) {
       </section>
 
       {error && <div className="api-error" role="alert"><b>提交失败</b><span>{error}</span></div>}
+
+      <ProcessLogPanel logs={logs} running={running} />
 
       <div className="rule-note">
         <span>职责边界</span>

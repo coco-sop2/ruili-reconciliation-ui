@@ -1,9 +1,9 @@
 // 文件说明：封装开始对账页的文件选择、文件校验和提交 CherryStudio 逻辑。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import { reconciliationApi } from "../api";
 import { validateReconciliationFile } from "../model/file-rules";
-import type { ReconciliationTaskSummary } from "../model/types";
+import type { ReconciliationProcessLog, ReconciliationTaskSummary } from "../model/types";
 import { requestErrorMessage } from "../model/view-model";
 
 type UseStartReconciliationOptions = {
@@ -21,6 +21,18 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
   );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [logs, setLogs] = useState<ReconciliationProcessLog[]>([]);
+  const logIdRef = useRef(0);
+
+  const appendLog = (level: ReconciliationProcessLog["level"], message: string) => {
+    const log: ReconciliationProcessLog = {
+      id: String(++logIdRef.current),
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+    };
+    setLogs((prev) => [...prev, log]);
+  };
 
   const createFileChangeHandler = (
     setFile: Dispatch<SetStateAction<File | null>>,
@@ -59,6 +71,12 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
 
     setRunning(true);
     setError("");
+    setLogs((prev) => [...prev, {
+      id: String(++logIdRef.current),
+      timestamp: new Date().toISOString(),
+      level: "info",
+      message: "点击「开始对账」，任务已提交",
+    }]);
     try {
       const task = await reconciliationApi.createTask({
         settlementFile,
@@ -67,9 +85,11 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
           name: agentName.trim() || undefined,
           workspace: agentWorkspace.trim() || undefined,
         },
+        onProgress: (log) => appendLog(log.level, log.message),
       });
       onComplete(task);
     } catch (requestError) {
+      appendLog("error", requestErrorMessage(requestError, "创建对账任务失败，请稍后重试"));
       setError(requestErrorMessage(requestError, "创建对账任务失败，请稍后重试"));
       setRunning(false);
     }
@@ -82,6 +102,7 @@ export function useStartReconciliation({ onComplete }: UseStartReconciliationOpt
     agentWorkspace,
     running,
     error,
+    logs,
     setAgentName,
     setAgentWorkspace,
     handleSettlementFileChange: createFileChangeHandler(setSettlementFile, "结算资料"),

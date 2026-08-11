@@ -88,8 +88,11 @@ Messages 请求不发送自定义 `Idempotency-Key` 请求头，避免触发 Che
 
 ## 返回结果适配
 
-前端接受直接返回 `{ "matched": ..., "difference": ... }`，也兼容该 JSON 字符串位于常见的 `content`、`data.content`、`message.content` 或 `choices[0].message.content` 中。
+> **重要：该接口实际返回 SSE 流式响应（`Content-Type: text/event-stream`）**，无论请求头 `Accept` 是否为 `application/json`。OpenAPI 文档（`/api-docs.json`）标注其为 `application/json` 并不准确，已实测确认。`readCherryStudioJson` 会按 SSE 流解析。
 
+SSE 流包含 Claude Code 事件：`start`、`raw`（init）、`start-step`/`finish-step`、`reasoning-*`（思维链增量）、`tool-call`/`tool-result`/`tool-error`（工具调用）、`text-*`（最终文本增量）。前端在 `readCherryStudioJson` 消费该流时，同时把过程事件转发给 `onProgress`，在「开始对账」页的日志面板实时展示 agent 的思考与工具调用过程。
+
+- 最终对账 JSON 从 `text-delta`/`text-end` 事件中提取，兼容直接返回 `{ matched, difference }`，也兼容该 JSON 字符串位于 `content`、`data.content`、`message.content` 或 `choices[0].message.content`。
 - `matched: true` 且 `difference: 0` 映射为 `SUCCEEDED`。
 - `matched: false` 且 `difference` 非零映射为 `NEEDS_REVIEW`，并生成一条汇总差异项。
 - `matched` 与 `difference` 自相矛盾、金额不是有限数字，或 agent 输出不是合法 JSON 时，请求会按无效响应失败。
