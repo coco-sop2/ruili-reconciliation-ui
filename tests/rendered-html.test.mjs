@@ -33,6 +33,7 @@ test("routes reconciliation work through CherryStudio", async () => {
     overviewView,
     reviewView,
     startHook,
+    taskProvider,
     overviewHook,
     reviewHook,
     apiEntry,
@@ -52,6 +53,7 @@ test("routes reconciliation work through CherryStudio", async () => {
     readFile(new URL("../src/features/reconciliation/components/OverviewView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/components/ReviewView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/hooks/use-start-reconciliation.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/reconciliation/hooks/ReconciliationTaskProvider.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/hooks/use-reconciliation-overview.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/hooks/use-review-items.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/reconciliation/api/index.ts", import.meta.url), "utf8"),
@@ -66,7 +68,7 @@ test("routes reconciliation work through CherryStudio", async () => {
     readFile(new URL("../src/features/reconciliation/api/agent-resolver.ts", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
-  const pageSource = [app, startView, overviewView, reviewView, startHook, overviewHook, reviewHook].join("\n");
+  const pageSource = [app, startView, overviewView, reviewView, startHook, taskProvider, overviewHook, reviewHook].join("\n");
   const apiSource = [apiEntry, cherryStudioClient, responseAdapter, fileRules, fileUploader, promptBuilder, agentResolver, viteConfig].join("\n");
   const runtimeSource = [pageSource, apiSource].join("\n");
 
