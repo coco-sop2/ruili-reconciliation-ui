@@ -83,6 +83,17 @@ export type ReconciliationStatistics = {
   updatedAt: string;
 };
 
+export type ReconciliationProcessLogLevel = "info" | "success" | "error";
+
+export type ReconciliationProcessLog = {
+  id: string;
+  timestamp: string;
+  level: ReconciliationProcessLogLevel;
+  message: string;
+};
+
+export type ReconciliationProgressListener = (log: ReconciliationProcessLog) => void;
+
 export type CreateReconciliationTaskInput = {
   settlementFile: File;
   erpFile: File;
@@ -90,6 +101,7 @@ export type CreateReconciliationTaskInput = {
     name?: string;
     workspace?: string;
   };
+  onProgress?: ReconciliationProgressListener;
 };
 
 export type ListReconciliationTasksParams = {

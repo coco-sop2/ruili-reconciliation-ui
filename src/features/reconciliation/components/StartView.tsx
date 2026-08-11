@@ -1,30 +1,34 @@
 // 文件说明：开始对账页面，展示两份资料上传入口和提交按钮。
+// 文件选择为本地表单状态；任务执行与处理日志由全局 ReconciliationTaskProvider 管理。
 import { useStartReconciliation } from "../hooks/use-start-reconciliation";
+import { useReconciliationTask } from "../hooks/ReconciliationTaskProvider";
 import {
   reconciliationFileAccept,
   reconciliationFileHint,
 } from "../model/file-rules";
-import type { ReconciliationTaskSummary } from "../model/types";
 import { FileCard } from "./FileCard";
+import { ProcessLogPanel } from "./ProcessLogPanel";
 
-type StartViewProps = {
-  onComplete: (task: ReconciliationTaskSummary) => void;
-};
-
-export function StartView({ onComplete }: StartViewProps) {
+export function StartView() {
   const {
     settlementFile,
     erpFile,
     agentName,
     agentWorkspace,
-    running,
-    error,
+    formError,
     setAgentName,
     setAgentWorkspace,
     handleSettlementFileChange,
     handleErpFileChange,
-    startReconciliation,
-  } = useStartReconciliation({ onComplete });
+  } = useStartReconciliation();
+  const { running, error, logs, startReconciliation } = useReconciliationTask();
+
+  const canStart = Boolean(settlementFile && erpFile && (agentName.trim() || agentWorkspace.trim()));
+
+  const handleSubmit = () => {
+    if (!settlementFile || !erpFile) return;
+    void startReconciliation({ settlementFile, erpFile, agentName, agentWorkspace });
+  };
 
   return (
     <div className="view-shell start-view">
@@ -109,15 +113,19 @@ export function StartView({ onComplete }: StartViewProps) {
           <span className={`readiness-dot ${settlementFile && erpFile ? "ready" : ""}`} />
           <div>
             <strong>{settlementFile && erpFile ? "文件已准备完成" : "请先导入两份资料"}</strong>
-            <small>{settlementFile && erpFile ? "点击后仅创建服务端任务，结果将异步返回" : "系统需要同时提交结算资料和 ERP 资料"}</small>
+            <small>{settlementFile && erpFile ? "点击后仅创建服务端任务，处理过程将实时显示" : "系统需要同时提交结算资料和 ERP 资料"}</small>
           </div>
         </div>
-        <button type="button" className="primary-button" disabled={!settlementFile || !erpFile || (!agentName.trim() && !agentWorkspace.trim()) || running} onClick={startReconciliation}>
+        <button type="button" className="primary-button" disabled={!canStart || running} onClick={handleSubmit}>
           {running ? <><span className="spinner" /> 正在提交任务</> : <>开始对账<span>→</span></>}
         </button>
       </section>
 
+      {formError && <div className="api-error" role="alert"><b>文件校验失败</b><span>{formError}</span></div>}
       {error && <div className="api-error" role="alert"><b>提交失败</b><span>{error}</span></div>}
+
+      {/* 处理日志：保持在发起对账界面；任务切页不中断，切回仍显示完整日志 */}
+      <ProcessLogPanel logs={logs} running={running} />
 
       <div className="rule-note">
         <span>职责边界</span>

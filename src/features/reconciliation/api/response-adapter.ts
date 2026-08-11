@@ -275,6 +275,12 @@ function normalizeAgentResponse(payload: unknown): CherryStudioResponse | null {
 type CherryStudioSseEvent = {
   type?: string;
   text?: string;
+  reasoning?: string;
+  toolName?: string;
+  toolCallId?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
   providerMetadata?: {
     raw?: {
       message?: {
@@ -283,6 +289,88 @@ type CherryStudioSseEvent = {
     };
   };
 };
+
+export type ProgressEmitter = (
+  level: "info" | "success" | "error",
+  message: string,
+) => void;
+
+function singleLine(value: string, maxLength: number) {
+  const line = value.split(/\r?\n/).find((item) => item.trim());
+  const trimmed = (line ?? value).trim().replace(/\s+/g, " ");
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
+}
+
+// 从工具调用的 input 里提取一句可读摘要（Bash 命令 / description / 其他字符串字段）。
+function toolInputSummary(input: unknown): string {
+  if (typeof input === "string") return singleLine(input, 80);
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const record = input as Record<string, unknown>;
+    const command = typeof record.command === "string" ? record.command : undefined;
+    const description = typeof record.description === "string" ? record.description : undefined;
+    const first = command ?? description;
+    if (typeof first === "string") return singleLine(first, 80);
+    const value = Object.values(record).find((item) => typeof item === "string");
+    if (typeof value === "string") return singleLine(value, 80);
+  }
+  return "";
+}
+
+// 把流式事件转成前端可读的过程日志。reasoning 增量做聚合节流，避免刷屏。
+function emitSseProcess(onProgress: ProgressEmitter) {
+  let reasoning = "";
+  const MAX_REASONING = 200;
+
+  const flushReasoning = () => {
+    const text = reasoning.trim();
+    if (!text) return;
+    onProgress("info", `正在思考：${singleLine(text, 160)}`);
+    reasoning = "";
+  };
+
+  return (event: CherryStudioSseEvent) => {
+    switch (event.type) {
+      case "start":
+        onProgress("info", "Agent 开始处理…");
+        break;
+      case "start-step":
+        flushReasoning();
+        onProgress("info", "进入新的处理步骤…");
+        break;
+      case "reasoning-delta":
+        if (typeof event.text === "string") {
+          reasoning += event.text;
+          if (reasoning.length >= MAX_REASONING) flushReasoning();
+        }
+        break;
+      case "tool-call": {
+        flushReasoning();
+        const name = event.toolName ?? "工具";
+        const detail = toolInputSummary(event.input);
+        onProgress("info", `调用工具 ${name}${detail ? `：${detail}` : ""}`);
+        break;
+      }
+      case "tool-result": {
+        flushReasoning();
+        const name = event.toolName ?? "工具";
+        const detail = typeof event.output === "string" ? singleLine(event.output, 60) : "";
+        onProgress("success", `${name} 执行完成${detail ? `：${detail}` : ""}`);
+        break;
+      }
+      case "tool-error": {
+        flushReasoning();
+        const name = event.toolName ?? "工具";
+        const detail = typeof event.error === "string" ? singleLine(event.error, 60) : "";
+        onProgress("error", `${name} 执行出错${detail ? `：${detail}` : ""}`);
+        break;
+      }
+      case "finish":
+        flushReasoning();
+        onProgress("success", "Agent 处理完成，正在整理最终结果…");
+        break;
+    }
+  };
+}
 
 // 从 CherryStudio 的 SSE 流中提取 agent 最终输出的纯文本。
 // 事件结构（data: 行，空行分隔）：
@@ -295,7 +383,10 @@ type CherryStudioSseEvent = {
 //   {"type":"text-end","providerMetadata":{"raw":{"message":{...}}}}  // 完整 assistant 消息
 //   {"type":"finish-step"} {"type":"finish"}
 //   data: [DONE]
-async function readSseFinalText(response: Response): Promise<string> {
+async function readSseFinalText(
+  response: Response,
+  onEvent?: (event: CherryStudioSseEvent) => void,
+): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return "";
 
@@ -314,6 +405,8 @@ async function readSseFinalText(response: Response): Promise<string> {
     } catch {
       return;
     }
+
+    onEvent?.(event);
 
     if (event.type === "text-delta" && typeof event.text === "string") {
       deltaText += event.text;
@@ -354,12 +447,15 @@ async function readSseFinalText(response: Response): Promise<string> {
   return finalText || deltaText;
 }
 
-export async function readCherryStudioJson(response: Response): Promise<CherryStudioResponse | null> {
+export async function readCherryStudioJson(
+  response: Response,
+  onProgress?: ProgressEmitter,
+): Promise<CherryStudioResponse | null> {
   const contentType = response.headers.get("content-type") ?? "";
 
   // CherryStudio messages 接口采用 SSE 流式响应，最终结果在 text-delta/text-end 事件里。
   if (contentType.includes("text/event-stream")) {
-    const text = (await readSseFinalText(response)).trim();
+    const text = (await readSseFinalText(response, onProgress ? emitSseProcess(onProgress) : undefined)).trim();
     if (!text) return null;
 
     const result = resultFromContent(text);
