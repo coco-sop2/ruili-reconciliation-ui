@@ -15,6 +15,7 @@ import type {
   ListReconciliationTasksParams,
   Money,
   PaginatedTasks,
+  ReconciliationProcessLog,
   ReconciliationProcessLogLevel,
   ReconciliationStatistics,
   ReconciliationTaskDetail,
@@ -56,8 +57,19 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
   async createTask(input: CreateReconciliationTaskInput) {
     const idempotencyKey = this.idempotencyKeyFor(input);
     const submittedAt = new Date().toISOString();
-    const emitLog = (level: ReconciliationProcessLogLevel, message: string) => {
-      input.onProgress?.({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), level, message });
+    const emitLog = (
+      level: ReconciliationProcessLogLevel,
+      message: string,
+      options?: Pick<ReconciliationProcessLog, "id" | "details" | "expanded">,
+    ) => {
+      input.onProgress?.({
+        id: options?.id ?? crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        details: options?.details,
+        expanded: options?.expanded,
+      });
     };
 
     emitLog("info", "开始创建对账任务…");

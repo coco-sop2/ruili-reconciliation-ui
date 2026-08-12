@@ -84,6 +84,20 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     const appendSafeLog = (level: ReconciliationProcessLog["level"], message: string) => {
       appendLog(level, redactApiKey(message, requestApiKey));
     };
+    const upsertSafeLog = (log: ReconciliationProcessLog) => {
+      const safeLog = {
+        ...log,
+        message: redactApiKey(log.message, requestApiKey),
+        details: log.details === undefined ? undefined : redactApiKey(log.details, requestApiKey),
+      };
+      setLogs((prev) => {
+        const index = prev.findIndex((item) => item.id === safeLog.id);
+        if (index < 0) return [...prev, safeLog];
+        const next = [...prev];
+        next[index] = { ...next[index], ...safeLog, timestamp: next[index].timestamp };
+        return next;
+      });
+    };
     appendSafeLog("info", "点击「开始对账」，任务已提交");
     try {
       const task = await reconciliationApi.createTask({
@@ -94,7 +108,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
           name: input.agentName.trim() || undefined,
           workspace: input.agentWorkspace.trim() || undefined,
         },
-        onProgress: (log) => appendSafeLog(log.level, log.message),
+        onProgress: upsertSafeLog,
       });
       setRunning(false);
       onCompleteRef.current(task);

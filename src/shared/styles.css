@@ -174,7 +174,9 @@ button { color: inherit; }
 .process-log__line--success .process-log__message { color: #9fd7c2; }
 .process-log__line--error .process-log__mark { color: var(--danger); }
 .process-log__line--error .process-log__message { color: #e8a3a3; }
-.process-log__message { color: #cdd9dc; word-break: break-word; }
+.process-log__message { min-width: 0; flex: 1; color: #cdd9dc; word-break: break-word; }
+.process-log__message summary { cursor: pointer; }
+.process-log__message pre { margin: 4px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: inherit; }
 .process-log__body::-webkit-scrollbar { width: 8px; }
 .process-log__body::-webkit-scrollbar-thumb { background: #33454d; border-radius: 4px; }
 .process-log__body::-webkit-scrollbar-thumb:hover { background: #425860; }
