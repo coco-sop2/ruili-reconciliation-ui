@@ -17,7 +17,7 @@ Agent 按名称和可选工作目录精确匹配。每次对账创建独立 Sess
 
 ## 文件访问
 
-上传文件由后端保存并关联任务。Agent 优先读取其 `accessible_paths` 中的本地绝对路径，必要时使用后端备用地址：
+上传文件由后端保存并关联任务。Prompt 使用下面两个后端文件地址供 Agent 读取：
 
 ```text
 GET /api/tasks/{taskId}/files/SETTLEMENT
@@ -34,28 +34,22 @@ Agent 最终必须返回：
 {
   "matched": false,
   "difference": -5.0,
+  "issues": "结算金额比 ERP 多 5 元，疑似存在退款记录未同步。",
   "period": "2026-05",
-  "issues": [
-    {
-      "rowLabel": "销售额合计",
-      "fieldName": "销售额",
-      "settlementValue": 512047,
-      "erpValue": 512042,
-      "differenceAmount": -5,
-      "message": "结算金额比 ERP 多 5 元",
-      "suggestion": "核对销售明细"
-    }
-  ]
+  "name": "京东商城"
 }
 ```
 
-差额方向固定为 `ERP 金额 - 结算金额`。后端会利用明细中的两侧金额纠正反向符号，并拒绝以下自相矛盾的结果：
+顶层必须且只应返回 `matched`、`difference`、`issues`、`period`、`name` 五个字段。`issues` 必须是字符串；没有疑似原因时返回空字符串。`period` 必须从 DRP 表单读取并使用 `YYYY-MM` 格式；`name` 必须是 DRP 表单中的商城名称，不能为空，也不能用文件名、Agent 名称或任务 ID 代替。后端将 `name` 作为对账总览中的任务名称。
 
-- `matched=true` 但总差额非零或仍有差异明细。
-- `matched=false`、总差额为零且没有任何差异明细。若明细正负抵消，总差额可以为零并继续进入人工审核。
+差额方向固定为 `ERP 金额 - 结算金额`。后端会拒绝以下不符合契约或自相矛盾的结果：
+
+- `matched=true` 但总差额非零或 `issues` 不是空字符串。
+- `matched=false`、总差额为零且 `issues` 是空字符串。
 - 总差额不是有限数字。
+- 缺少五个必需字段、包含额外字段、字段类型错误，或 `period` 不是 `YYYY-MM` 格式。
 
-当 `matched=false` 且 Agent 只返回总差额时，后端会生成一条可审核的汇总明细，避免任务无法处理。
+后端会把 `issues` 字符串转换为现有的可审核明细；当 `matched=false` 且 `issues` 为空、但总差额非零时，仍会生成一条汇总明细，避免任务无法处理。
 
 ## SSE 事件
 

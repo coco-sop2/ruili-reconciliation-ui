@@ -5,8 +5,11 @@ import { appendTaskProgress, initializeTaskProgress } from "../lib/task-progress
 import {
   resolveAgentSession,
   sendReconciliationPrompt,
+  deleteAgentSession,
   CherryStudioError,
   type AgentSelector,
+  type CherryAgentSession,
+  type CherryParseResult,
 } from "../lib/cherrystudio.js";
 import { config } from "../lib/config.js";
 
@@ -31,6 +34,13 @@ export type CreateReconciliationInput = {
   agentSelector: AgentSelector;
   onProgress?: (log: ProgressLog) => void;
 };
+
+type ActiveReconciliation = {
+  controller: AbortController;
+  target?: CherryAgentSession;
+};
+
+const activeReconciliations = new Map<string, ActiveReconciliation>();
 
 function emit(
   onProgress: CreateReconciliationInput["onProgress"],
@@ -146,9 +156,12 @@ async function runReconciliation(
   agentSelector: AgentSelector,
   onProgress?: CreateReconciliationInput["onProgress"],
 ) {
+  const active: ActiveReconciliation = { controller: new AbortController() };
+  activeReconciliations.set(taskId, active);
+
   try {
-    await prisma.reconciliationTask.update({
-      where: { id: taskId },
+    const started = await prisma.reconciliationTask.updateMany({
+      where: { id: taskId, status: { in: [TaskStatus.PROCESSING, TaskStatus.QUEUED] } },
       data: {
         status: TaskStatus.PROCESSING,
         failureCode: null,
@@ -157,10 +170,14 @@ async function runReconciliation(
         attemptCount: { increment: 1 },
       },
     });
+    if (started.count === 0) return;
     emit(onProgress, "info", "正在连接 CherryStudio Agent…");
-    const target = await resolveAgentSession(agentSelector, (level, message) =>
-      emit(onProgress, level, message),
+    const target = await resolveAgentSession(
+      agentSelector,
+      (level, message) => emit(onProgress, level, message),
+      active.controller.signal,
     );
+    active.target = target;
     await prisma.reconciliationTask.update({
       where: { id: taskId },
       data: {
@@ -185,13 +202,17 @@ async function runReconciliation(
     });
 
     emit(onProgress, "info", "提示词已生成，正在提交至 Agent…");
-    const result = await sendReconciliationPrompt(target, prompt, (level, message) =>
-      emit(onProgress, level, message),
+    const result = await sendReconciliationPrompt(
+      target,
+      prompt,
+      (level, message) => emit(onProgress, level, message),
+      active.controller.signal,
     );
 
     // 回写数据库
     await applyReconciliationResult(taskId, result, onProgress);
   } catch (error) {
+    if (active.controller.signal.aborted || await taskWasCancelled(taskId)) return;
     const message = error instanceof Error ? error.message : "对账处理失败";
     const failureCode = error instanceof CherryStudioError ? error.code : "RECONCILIATION_FAILED";
     emit(onProgress, "error", message);
@@ -208,7 +229,66 @@ async function runReconciliation(
     } catch {
       // 忽略回写失败
     }
+  } finally {
+    if (activeReconciliations.get(taskId) === active) activeReconciliations.delete(taskId);
   }
+}
+
+export async function cancelReconciliationTask(taskId: string) {
+  const task = await prisma.reconciliationTask.findUnique({
+    where: { id: taskId },
+    select: { id: true, status: true, agentId: true, agentName: true, agentSessionId: true },
+  });
+  if (!task) return { outcome: "not_found" as const };
+  if (task.status !== TaskStatus.PROCESSING && task.status !== TaskStatus.QUEUED) {
+    return { outcome: "already_finished" as const, status: task.status };
+  }
+
+  const cancelled = await prisma.reconciliationTask.updateMany({
+    where: { id: taskId, status: { in: [TaskStatus.PROCESSING, TaskStatus.QUEUED] } },
+    data: {
+      status: TaskStatus.CANCELLED,
+      failureCode: "TASK_CANCELLED",
+      failureMessage: "对账任务已由用户停止",
+      completedAt: new Date(),
+    },
+  });
+  if (cancelled.count === 0) {
+    const current = await prisma.reconciliationTask.findUnique({ where: { id: taskId }, select: { status: true } });
+    return { outcome: "already_finished" as const, status: current?.status };
+  }
+
+  const active = activeReconciliations.get(taskId);
+  active?.controller.abort(new Error("对账任务已由用户停止"));
+  const target = active?.target ?? (
+    task.agentId && task.agentSessionId
+      ? { agentId: task.agentId, agentName: task.agentName ?? "", sessionId: task.agentSessionId }
+      : undefined
+  );
+
+  appendTaskProgress(taskId, {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    level: "success",
+    message: "对账任务已停止",
+  });
+
+  let sessionStopped = false;
+  if (target) {
+    try {
+      await deleteAgentSession(target);
+      sessionStopped = true;
+    } catch (error) {
+      console.error(`[reconciliation] 停止 CherryStudio Session ${target.sessionId} 失败`, error);
+    }
+  }
+
+  return { outcome: "cancelled" as const, status: TaskStatus.CANCELLED, sessionStopped };
+}
+
+async function taskWasCancelled(taskId: string) {
+  const task = await prisma.reconciliationTask.findUnique({ where: { id: taskId }, select: { status: true } });
+  return task?.status === TaskStatus.CANCELLED;
 }
 
 export async function resumeIncompleteTasks() {
@@ -218,22 +298,28 @@ export async function resumeIncompleteTasks() {
   });
 
   for (const task of tasks) {
-    if (task.attemptCount >= 3) {
-      await prisma.reconciliationTask.update({
-        where: { id: task.id },
-        data: {
-          status: TaskStatus.FAILED,
-          failureCode: "RETRY_LIMIT_REACHED",
-          failureMessage: "服务多次重启，对账任务已停止自动恢复",
-          completedAt: new Date(),
-        },
-      });
-      continue;
-    }
-
     initializeTaskProgress(task.id, []);
     const onProgress = (log: ProgressLog) => appendTaskProgress(task.id, log);
-    emit(onProgress, "info", `服务恢复后继续执行任务（第 ${task.attemptCount + 1} 次尝试）`);
+    emit(onProgress, "info", "服务恢复后继续执行未完成任务");
+
+    if (task.agentId && task.agentSessionId) {
+      try {
+        await deleteAgentSession({
+          agentId: task.agentId,
+          agentName: task.agentName ?? "",
+          sessionId: task.agentSessionId,
+        });
+        await prisma.reconciliationTask.updateMany({
+          where: { id: task.id, status: { in: [TaskStatus.PROCESSING, TaskStatus.QUEUED] } },
+          data: { agentSessionId: null },
+        });
+        emit(onProgress, "success", "已清理上次中断的 Agent Session");
+      } catch (error) {
+        console.error(`[startup] 清理中断 Session ${task.agentSessionId} 失败`, error);
+        emit(onProgress, "info", "上次 Agent Session 无法清理，将创建新的 Session 继续处理");
+      }
+    }
+
     void runReconciliation(
       task.id,
       task.settlementFile.storedPath,
@@ -252,44 +338,34 @@ export async function resumeIncompleteTasks() {
  */
 async function applyReconciliationResult(
   taskId: string,
-  result: {
-    matched: boolean;
-    difference: number;
-    period?: string | null;
-    settlementAmount?: number | null;
-    erpAmount?: number | null;
-    issues: Array<{
-      rowLabel?: string;
-      fieldName?: string;
-      differenceAmount?: string | number | null;
-      message?: string;
-      suggestion?: string | null;
-      [key: string]: unknown;
-    }>;
-  },
+  result: CherryParseResult,
   onProgress?: CreateReconciliationInput["onProgress"],
 ) {
   const differenceAmount = new Prisma.Decimal(result.difference.toFixed(2));
   const status = result.matched ? TaskStatus.SUCCEEDED : TaskStatus.NEEDS_REVIEW;
   const period = result.period ?? extractPeriodFromPayload(result);
 
-  await prisma.$transaction(async (tx) => {
+  const applied = await prisma.$transaction(async (tx) => {
     if (period) {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${period}))`;
+      // Prisma cannot deserialize PostgreSQL's void return type, so expose only an integer column.
+      await tx.$queryRaw<Array<{ acquired: number }>>`
+        SELECT 1 AS acquired
+        FROM pg_advisory_xact_lock(hashtext(${period}))
+      `;
     }
 
     // 1. 更新任务状态
-    const task = await tx.reconciliationTask.update({
-      where: { id: taskId },
+    const task = await tx.reconciliationTask.updateMany({
+      where: { id: taskId, status: { in: [TaskStatus.PROCESSING, TaskStatus.QUEUED] } },
       data: {
+        name: result.name,
         status,
-        settlementAmount: toFiniteDecimal(result.settlementAmount),
-        erpAmount: toFiniteDecimal(result.erpAmount),
         differenceAmount,
         completedAt: new Date(),
-        rawAgentPayload: result as unknown as Prisma.InputJsonValue,
+        rawAgentPayload: result.rawAgentPayload as unknown as Prisma.InputJsonValue,
       },
     });
+    if (task.count === 0) return false;
 
     // A resumed attempt replaces any partial review data from an earlier attempt.
     await tx.reconciliationReviewItem.deleteMany({ where: { taskId } });
@@ -307,20 +383,9 @@ async function applyReconciliationResult(
       });
     }
 
-    // 3. 版本号 + 账期：解析账期，作废旧版
+    // 3. 版本号 + 账期：每次对账都是独立业务记录，不自动改写历史任务状态。
     if (period) {
-      // 同账期已有非 OBSOLETE 任务 → 作废
-      await tx.reconciliationTask.updateMany({
-        where: {
-          period,
-          status: {
-            in: [TaskStatus.SUCCEEDED, TaskStatus.NEEDS_REVIEW, TaskStatus.REVIEWED, TaskStatus.FAILED],
-          },
-          id: { not: taskId },
-        },
-        data: { status: TaskStatus.OBSOLETE },
-      });
-      // 计算新版本号
+      // 版本号只用于满足同账期记录的唯一约束，不代表新任务替代旧任务。
       const latest = await tx.reconciliationTask.findFirst({
         where: { period, id: { not: taskId } },
         orderBy: { version: "desc" },
@@ -333,13 +398,15 @@ async function applyReconciliationResult(
       });
     }
 
-    return task;
+    return true;
   });
+
+  if (!applied) return;
 
   emit(
     onProgress,
     "success",
-    `对账完成：差额 ${differenceAmount.toString()} 元${status === TaskStatus.SUCCEEDED ? "（金额一致）" : "（存在差异）"}`,
+    `对账完成：${result.name}，差额 ${differenceAmount.toString()} 元${status === TaskStatus.SUCCEEDED ? "（金额一致）" : "（存在差异）"}`,
   );
 }
 
@@ -375,7 +442,7 @@ function extractPeriodFromPayload(payload: unknown): string | null {
         return `${candidate.slice(0, 4)}-${String(month).padStart(2, "0")}`;
       }
       // 也支持 yyyy年m月
-      const m2 = candidate.match(/(\d{4})年(\d{1,2})月/);
+      const m2 = candidate.match(/(\d{4})年-?(\d{1,2})月/);
       const chineseMonth = m2 ? Number(m2[2]) : 0;
       if (chineseMonth >= 1 && chineseMonth <= 12) {
         return `${m2![1]}-${String(chineseMonth).padStart(2, "0")}`;
@@ -404,41 +471,49 @@ export function buildReconciliationPrompt(params: {
   submittedAt: string;
   taskId: string;
 }) {
-  return `请对以下两份文件进行对账。
+  const erpUrl = params.erpFileUrl;
+  const settlementUrl = params.settlementFileUrl;
 
-结算资料本地路径：${params.settlementFilePath}
-ERP 资料本地路径：${params.erpFilePath}
+  return `我有一个对账任务：
 
-以上路径位于当前 Agent 的 accessible_paths 内，请优先直接读取本地文件。
-仅当本地路径不可用时再使用下面的备用下载地址：
-结算资料下载地址：${params.settlementFileUrl}
-ERP 资料下载地址：${params.erpFileUrl}
+${erpUrl}
+这是 ERP 导出单据
 
-请逐条核对两份资料中的金额，输出严格的 JSON（不要额外文字，不要 markdown 代码块）：
+${settlementUrl}
+这是结算单
+
+在过程中，面对图片、PDF 等文件，你可以使用 mineru 这个项目 Subagent 获取 Markdown 格式的内容。
+
+请帮我看看是否能够对上账。
+
+当你完成对账后，最后只输出一个合法的 JSON 对象，不要使用 Markdown 代码块，也不要在 JSON 前后输出其他内容。格式例子如下：
 
 {
-  "matched": true/false,
-  "settlementAmount": 结算总额数字或 null,
-  "erpAmount": ERP 总额数字或 null,
-  "difference": 总差额数字,
-  "period": "账期，格式 YYYY-MM；无法识别时为 null",
-  "issues": [
-    {
-      "rowLabel": "行标识",
-      "fieldName": "字段名",
-      "settlementValue": 结算值,
-      "erpValue": ERP 值,
-      "differenceAmount": 差额,
-      "message": "差异说明",
-      "suggestion": "核对建议"
-    }
-  ]
+  "matched": true,
+  "difference": 0.00,
+  "issues": "",
+  "period": "XXXX-XX",
+  "name": "商城名称A"
 }
 
-要求：
-1. matched=true 当且仅当所有金额一致
-2. 逐条列出全部有差异的条目到 issues
-3. difference 固定使用 ERP 金额减结算金额（ERP - 结算）；结算大于 ERP 时必须为负数
-4. issues 中的 differenceAmount 也固定使用 ERP 值减结算值
-5. 金额用数字，不要带货币符号`;
+或者：
+
+{
+  "matched": false,
+  "difference": 1500.00,
+  "issues": "DRP 中有 16% 和 17% 两档扣点，而结算单全部按 17% 计算。可能存在退款记录未同步。",
+  "period": "XXXX-XX",
+  "name": "商城名称A"
+}
+
+其中：
+- matched：true 表示两方金额一致；false 表示存在差异
+- difference：ERP 金额 - 结算单金额，单位为元
+  - difference正数：ERP 多计，结算单少计
+  - difference负数：ERP 少计，结算单多计
+  - difference为0：金额一致
+- issues: 字符串，列出造成差异的疑似原因；如果金额一致或未发现疑似原因，输出""
+- period: 字符串，对账月份，格式必须为 "YYYY-MM"
+- name: 字符串，drp表单中的商城名称`
+
 }

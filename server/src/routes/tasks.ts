@@ -3,7 +3,11 @@ import multer from "multer";
 import { Prisma, TaskStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { config } from "../lib/config.js";
-import { createReconciliationTask, type ProgressLog } from "../services/reconciliation.js";
+import {
+  cancelReconciliationTask,
+  createReconciliationTask,
+  type ProgressLog,
+} from "../services/reconciliation.js";
 import { getTaskProgress, removeTaskProgress } from "../lib/task-progress.js";
 import { deleteStoredFilePath } from "../lib/file-storage.js";
 import path from "node:path";
@@ -108,6 +112,7 @@ tasksRouter.get("/", async (req, res, next) => {
     if (keyword) {
       facetWhere.OR = [
         { id: { contains: keyword, mode: "insensitive" } },
+        { name: { contains: keyword, mode: "insensitive" } },
         { period: { contains: keyword, mode: "insensitive" } },
         { createdByName: { contains: keyword, mode: "insensitive" } },
         { settlementFile: { originalName: { contains: keyword, mode: "insensitive" } } },
@@ -138,6 +143,7 @@ tasksRouter.get("/", async (req, res, next) => {
       NEEDS_REVIEW: 0,
       REVIEWED: 0,
       FAILED: 0,
+      CANCELLED: 0,
       OBSOLETE: 0,
     };
     const [facetTotal, statusCounts] = await Promise.all([
@@ -168,6 +174,34 @@ tasksRouter.get("/", async (req, res, next) => {
 });
 
 // GET /api/tasks/:id —— 详情（含明细）
+// POST /api/tasks/:id/stop - stop an active backend run and its CherryStudio session.
+tasksRouter.post("/:id/stop", async (req, res, next) => {
+  try {
+    const result = await cancelReconciliationTask(req.params.id);
+    if (result.outcome === "not_found") {
+      return res.status(404).json({
+        error: { code: "TASK_NOT_FOUND", message: "未找到对账任务", requestId: crypto.randomUUID() },
+      });
+    }
+    if (result.outcome === "already_finished" && result.status !== TaskStatus.CANCELLED) {
+      return res.status(409).json({
+        error: { code: "TASK_NOT_ACTIVE", message: "任务已结束，无需停止", requestId: crypto.randomUUID() },
+      });
+    }
+    return res.json({
+      data: {
+        taskId: req.params.id,
+        status: TaskStatus.CANCELLED,
+        stopped: true,
+        sessionStopped: result.outcome === "cancelled" ? result.sessionStopped : true,
+      },
+      requestId: crypto.randomUUID(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // DELETE /api/tasks/:id - permanently remove a completed task and its source files.
 tasksRouter.delete("/:id", async (req, res, next) => {
   try {
@@ -257,6 +291,7 @@ tasksRouter.get("/:id", async (req, res, next) => {
 
 function toSummary(task: {
   id: string;
+  name: string | null;
   status: string;
   period: string | null;
   version: number;
@@ -271,6 +306,7 @@ function toSummary(task: {
 }) {
   return {
     id: task.id,
+    name: task.name,
     status: task.status,
     periodLabel: task.period,
     version: task.version,
@@ -297,6 +333,7 @@ function toSummary(task: {
 
 function toDetail(task: {
   id: string;
+  name: string | null;
   status: string;
   period: string | null;
   version: number;

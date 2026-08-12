@@ -17,6 +17,7 @@ enum TaskStatus {
   NEEDS_REVIEW
   REVIEWED
   FAILED
+  CANCELLED
   OBSOLETE
 }
 
@@ -33,6 +34,7 @@ enum FileKind {
 
 model ReconciliationTask {
   id               String        @id @default(uuid())
+  name             String?       @db.VarChar(120)
   version          Int           @default(1)
   status           TaskStatus
   period           String?

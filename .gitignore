@@ -58,6 +58,7 @@ yarn-error.log*
 /mineru_*.txt
 /*_output.md
 /*_error.txt
+/settlement_output*.md
 /账单*.md
 /账单*.pdf
 /账单*.xlsx
@@ -70,3 +71,4 @@ yarn-error.log*
 /server-delete-feature*.log
 /server-runtime*.log
 /frontend-runtime*.log
+/.runtime/

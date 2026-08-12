@@ -17,6 +17,7 @@ export function ReviewView() {
     reviewedCount,
     loading,
     error,
+    errorTitle,
     updatingItemId,
     setReviewStatus,
   } = useReviewItems();
@@ -35,7 +36,7 @@ export function ReviewView() {
         </div>
       </div>
 
-      {error && <div className="api-error overview-error" role="alert"><b>审核明细加载失败</b><span>{error}</span></div>}
+      {error && <div className="api-error overview-error" role="alert"><b>{errorTitle}</b><span>{error}</span></div>}
 
       <section className="records-section review-section">
         <div className="records-head">

@@ -21,7 +21,11 @@ reviewItemsRouter.patch("/:taskId/review-items/:itemId", async (req, res, next) 
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${taskId}))`;
+      // PostgreSQL advisory lock returns void; expose an integer column for Prisma.
+      await tx.$queryRaw<Array<{ acquired: number }>>`
+        SELECT 1 AS acquired
+        FROM pg_advisory_xact_lock(hashtext(${taskId}))
+      `;
 
       // 1. 更新明细状态
       const item = await tx.reconciliationReviewItem.findUnique({

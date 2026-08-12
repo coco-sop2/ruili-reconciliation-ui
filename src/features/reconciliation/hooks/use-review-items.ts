@@ -18,6 +18,7 @@ export function useReviewItems() {
   const [reviewStatuses, setReviewStatuses] = useState<Record<string, ReviewItemStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [errorTitle, setErrorTitle] = useState("");
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,12 +28,13 @@ export function useReviewItems() {
       try {
         setLoading(true);
         setError("");
+        setErrorTitle("");
         const summaries = [];
         let page = 1;
         let total = 0;
         do {
           const result = await reconciliationApi.listTasks({
-            status: ["NEEDS_REVIEW"],
+            status: ["NEEDS_REVIEW", "REVIEWED"],
             page,
             pageSize: 100,
           });
@@ -43,7 +45,10 @@ export function useReviewItems() {
         const details = await Promise.all(summaries.map((task) => reconciliationApi.getTask(task.id)));
         if (active) setTasks(details.filter((task) => task.reviewItems.length > 0));
       } catch (requestError) {
-        if (active) setError(requestErrorMessage(requestError, "审核明细加载失败"));
+        if (active) {
+          setErrorTitle("审核明细加载失败");
+          setError(requestErrorMessage(requestError, "审核明细加载失败"));
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -65,11 +70,11 @@ export function useReviewItems() {
     setReviewStatuses((current) => ({ ...current, [itemId]: status }));
     setUpdatingItemId(itemId);
     setError("");
+    setErrorTitle("");
     try {
       const task = await reconciliationApi.updateReviewItem(taskId, itemId, status);
       setTasks((current) => current
-        .map((item) => item.id === taskId ? task : item)
-        .filter((item) => item.status === "NEEDS_REVIEW"));
+        .map((item) => item.id === taskId ? task : item));
       setReviewStatuses((current) => {
         const next = { ...current };
         delete next[itemId];
@@ -82,6 +87,7 @@ export function useReviewItems() {
         else delete next[itemId];
         return next;
       });
+      setErrorTitle("审核状态保存失败");
       setError(requestErrorMessage(requestError, "审核状态保存失败"));
     } finally {
       setUpdatingItemId(null);
@@ -95,6 +101,7 @@ export function useReviewItems() {
     reviewedCount,
     loading,
     error,
+    errorTitle,
     updatingItemId,
     setReviewStatus,
   };

@@ -16,9 +16,12 @@ export type StartReconciliationInput = {
 
 type ReconciliationTaskContextValue = {
   running: boolean;
+  canStop: boolean;
+  stopping: boolean;
   logs: ReconciliationProcessLog[];
   error: string;
   startReconciliation: (input: StartReconciliationInput) => Promise<void>;
+  stopReconciliation: () => Promise<void>;
 };
 
 const ReconciliationTaskContext = createContext<ReconciliationTaskContextValue | null>(null);
@@ -50,7 +53,10 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     message: `正在恢复任务 ${restoredTaskId} 的处理进度…`,
   }] : []);
   const [error, setError] = useState("");
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(restoredTaskId);
+  const [stopping, setStopping] = useState(false);
   const logIdRef = useRef(restoredTaskId ? 1 : 0);
+  const activeTaskIdRef = useRef<string | null>(restoredTaskId);
   const seenServerLogIds = useRef(new Set<string>());
   const restoreStartedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
@@ -80,12 +86,23 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     }
 
     appendServerLogs(current.progressLogs, seenServerLogIds.current, appendLog);
-    window.localStorage.removeItem(activeTaskStorageKey);
+    const ownsTask = activeTaskIdRef.current === taskId;
+    if (ownsTask) {
+      activeTaskIdRef.current = null;
+      window.localStorage.removeItem(activeTaskStorageKey);
+      setActiveTaskId(null);
+    }
     if (current.status === "FAILED") {
       throw new Error(current.failure?.message || "Agent 对账失败");
     }
-    setRunning(false);
-    onCompleteRef.current(current);
+    if (current.status === "CANCELLED") {
+      if (ownsTask) setRunning(false);
+      return;
+    }
+    if (ownsTask) {
+      setRunning(false);
+      onCompleteRef.current(current);
+    }
   }, [appendLog]);
 
   useEffect(() => {
@@ -130,6 +147,8 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
           appendLog(log.level, log.message);
         },
       });
+      activeTaskIdRef.current = task.id;
+      setActiveTaskId(task.id);
       window.localStorage.setItem(activeTaskStorageKey, task.id);
       await monitorTask(task.id);
     } catch (requestError) {
@@ -143,8 +162,38 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     }
   }, [running, appendLog, monitorTask]);
 
+  const stopReconciliation = useCallback(async () => {
+    const taskId = activeTaskId ?? window.localStorage.getItem(activeTaskStorageKey);
+    if (!taskId || stopping) return;
+    setStopping(true);
+    setError("");
+    appendLog("info", "正在停止对账任务…");
+    try {
+      await reconciliationApi.stopTask(taskId);
+      activeTaskIdRef.current = null;
+      window.localStorage.removeItem(activeTaskStorageKey);
+      setActiveTaskId(null);
+      setRunning(false);
+      appendLog("success", "对账任务已停止");
+    } catch (requestError) {
+      const message = requestErrorMessage(requestError, "停止对账任务失败");
+      appendLog("error", message);
+      setError(message);
+    } finally {
+      setStopping(false);
+    }
+  }, [activeTaskId, appendLog, stopping]);
+
   return (
-    <ReconciliationTaskContext.Provider value={{ running, logs, error, startReconciliation }}>
+    <ReconciliationTaskContext.Provider value={{
+      running,
+      canStop: Boolean(activeTaskId),
+      stopping,
+      logs,
+      error,
+      startReconciliation,
+      stopReconciliation,
+    }}>
       {children}
     </ReconciliationTaskContext.Provider>
   );

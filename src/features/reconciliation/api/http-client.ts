@@ -35,6 +35,7 @@ function statusFromString(status: string): ReconciliationStatus {
     status === "NEEDS_REVIEW" ||
     status === "REVIEWED" ||
     status === "FAILED" ||
+    status === "CANCELLED" ||
     status === "OBSOLETE"
   ) {
     return status;
@@ -44,6 +45,7 @@ function statusFromString(status: string): ReconciliationStatus {
 
 type RawSummary = {
   id: string;
+  name: string | null;
   status: string;
   periodLabel: string | null;
   version: number;
@@ -89,6 +91,7 @@ type RawListResponse = {
 function toSummary(raw: RawSummary): ReconciliationTaskSummary {
   return {
     id: raw.id,
+    name: raw.name,
     status: statusFromString(raw.status),
     periodLabel: raw.periodLabel,
     settlementFile: {
@@ -272,6 +275,7 @@ export class HttpReconciliationApi implements ReconciliationApi {
     // 这里返回一个 PROCESSING 的占位摘要，后续靠轮询 getTask 获取真实状态。
     const placeholder: ReconciliationTaskSummary = {
       id: taskId,
+      name: null,
       status: "PROCESSING",
       periodLabel: null,
       settlementFile: {
@@ -316,7 +320,7 @@ export class HttpReconciliationApi implements ReconciliationApi {
     const raw = await this.request<RawListResponse>(`/api/tasks?${query.toString()}`);
 
     const byStatus = {} as Record<ReconciliationStatus, number>;
-    const statuses: ReconciliationStatus[] = ["QUEUED", "PROCESSING", "SUCCEEDED", "NEEDS_REVIEW", "REVIEWED", "FAILED", "OBSOLETE"];
+    const statuses: ReconciliationStatus[] = ["QUEUED", "PROCESSING", "SUCCEEDED", "NEEDS_REVIEW", "REVIEWED", "FAILED", "CANCELLED", "OBSOLETE"];
     for (const s of statuses) byStatus[s] = raw.facets.byStatus[s] ?? 0;
 
     return {
@@ -331,6 +335,13 @@ export class HttpReconciliationApi implements ReconciliationApi {
   async getTask(taskId: string): Promise<ReconciliationTaskDetail> {
     const raw = await this.request<RawDetail>(`/api/tasks/${encodeURIComponent(taskId)}`);
     return toDetail(raw);
+  }
+
+  async stopTask(taskId: string): Promise<void> {
+    await this.request<{ stopped: boolean; sessionStopped: boolean }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/stop`,
+      { method: "POST" },
+    );
   }
 
   async deleteTask(taskId: string): Promise<void> {

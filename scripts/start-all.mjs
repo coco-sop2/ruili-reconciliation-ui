@@ -1,137 +1,252 @@
 #!/usr/bin/env node
-// 一键启动脚本：建立 SSH 隧道 + 启动后端 + 启动前端 + 打开浏览器
-// 用法：node scripts/start-all.mjs
-// 前提：本机已配置 SSH 免密登录到服务器（~/.ssh/id_ed25519 已上传公钥）
+// 一键启动：检查本机配置和依赖，建立数据库 SSH 隧道，再启动前后端。
 
-import { spawn, execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
-
-const SERVER_HOST = "8.133.196.107";
-const SERVER_PORT = 32222;
-const SERVER_USER = "cherry";
-const TUNNEL_LOCAL_PORT = 5433;
-const TUNNEL_REMOTE_PORT = 5432;
-
-const BACKEND_PORT = 3001;
-const FRONTEND_PORT = 3333;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER_DIR = path.join(ROOT, "server");
+const SERVER_ENV_PATH = path.join(SERVER_DIR, ".env");
+const SETUP_SCRIPT = path.join(ROOT, "scripts", "setup.mjs");
+const FRONTEND_PORT = 3333;
+const NO_BROWSER = process.argv.includes("--no-browser");
+const LOG_DIR = path.join(ROOT, ".runtime");
 
-// Windows 下显式定位 cmd.exe（Git Bash 环境 PATH 可能不含 system32）
-const WINDOWS_CMD = process.platform === "win32"
-  ? process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe"
-  : "/bin/sh";
+const log = (message) => console.log(`[一键启动] ${message}`);
 
-const log = (msg) => console.log(`[一键启动] ${msg}`);
+function parseEnvFile(filePath) {
+  if (!existsSync(filePath)) return {};
+  const values = {};
+  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator < 1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    let value = trimmed.slice(separator + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[key] = value;
+  }
+  return values;
+}
+
+function intSetting(values, key, fallback) {
+  const parsed = Number.parseInt(values[key] || "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function expandHome(value) {
+  if (!value) return path.join(os.homedir(), ".ssh", "id_ed25519");
+  if (value === "~") return os.homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return path.resolve(value);
+}
+
+function loadSettings() {
+  const values = parseEnvFile(SERVER_ENV_PATH);
+  return {
+    values,
+    sshHost: values.SSH_HOST || "8.133.196.107",
+    sshPort: intSetting(values, "SSH_PORT", 32222),
+    sshUser: values.SSH_USER || "cherry",
+    sshIdentityFile: expandHome(values.SSH_IDENTITY_FILE),
+    localDatabasePort: intSetting(values, "SSH_LOCAL_DATABASE_PORT", 5433),
+    remoteDatabaseHost: values.SSH_REMOTE_DATABASE_HOST || "127.0.0.1",
+    remoteDatabasePort: intSetting(values, "SSH_REMOTE_DATABASE_PORT", 5432),
+    backendPort: intSetting(values, "PORT", 3001),
+  };
+}
+
+function commandAvailable(command, args) {
+  const result = spawnSync(command, args, { stdio: "ignore", windowsHide: true });
+  return !result.error;
+}
+
+function assertPrerequisites() {
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 22 || (major === 22 && minor < 13)) {
+    throw new Error(`需要 Node.js 22.13 或更高版本，当前为 ${process.version}`);
+  }
+  if (!commandAvailable("ssh", ["-V"])) {
+    throw new Error("未找到 OpenSSH Client。请在 Windows 可选功能中安装 OpenSSH 客户端");
+  }
+}
+
+function configurationProblems(settings) {
+  const problems = [];
+  const databaseUrl = settings.values.DATABASE_URL || "";
+  if (!databaseUrl || /:password@/i.test(databaseUrl)) {
+    problems.push("DATABASE_URL 尚未填写真实数据库密码");
+  }
+  if (!settings.values.CHERRYSTUDIO_API_KEY) {
+    problems.push("CHERRYSTUDIO_API_KEY 尚未填写");
+  }
+  if (!existsSync(settings.sshIdentityFile)) {
+    problems.push(`SSH 私钥不存在：${settings.sshIdentityFile}`);
+  }
+  return problems;
+}
+
+function ensureConfiguration() {
+  let settings = loadSettings();
+  if (!existsSync(SERVER_ENV_PATH) || configurationProblems(settings).length > 0) {
+    log("检测到首次运行或配置不完整，进入首次配置…");
+    execFileSync(process.execPath, [SETUP_SCRIPT], { cwd: ROOT, stdio: "inherit" });
+    settings = loadSettings();
+  }
+
+  const problems = configurationProblems(settings);
+  if (problems.length > 0) {
+    throw new Error(`配置仍不完整：\n- ${problems.join("\n- ")}\n请修改 server/.env 后重试`);
+  }
+  return settings;
+}
+
+const npmCommand = () => (process.platform === "win32" ? "npm.cmd" : "npm");
+
+function runNpm(args, cwd) {
+  execFileSync(npmCommand(), args, { cwd, stdio: "inherit", windowsHide: false });
+}
+
+function ensureDependencies() {
+  const frontendReady = existsSync(path.join(ROOT, "node_modules", "vite", "bin", "vite.js"));
+  const backendReady = existsSync(path.join(SERVER_DIR, "node_modules", "tsx", "dist", "cli.mjs"))
+    && existsSync(path.join(SERVER_DIR, "node_modules", "@prisma", "client"));
+
+  if (!frontendReady) {
+    log("首次安装前端依赖…");
+    runNpm(["ci", "--no-audit", "--no-fund"], ROOT);
+  }
+  if (!backendReady) {
+    log("首次安装后端依赖…");
+    runNpm(["ci", "--no-audit", "--no-fund"], SERVER_DIR);
+  }
+}
 
 function portOpen(port, host = "127.0.0.1") {
   return new Promise((resolve) => {
     const socket = net.createConnection({ port, host });
-    socket.setTimeout(2000);
+    socket.setTimeout(1500);
     socket.on("connect", () => { socket.destroy(); resolve(true); });
     socket.on("error", () => resolve(false));
     socket.on("timeout", () => { socket.destroy(); resolve(false); });
   });
 }
 
-// 1. 确保 SSH 隧道
-async function ensureTunnel() {
-  const isOpen = await portOpen(TUNNEL_LOCAL_PORT);
-  if (isOpen) {
-    log(`SSH 隧道已就绪（本地 ${TUNNEL_LOCAL_PORT} → 服务器 ${TUNNEL_REMOTE_PORT}）`);
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function runtimeLog(name) {
+  mkdirSync(LOG_DIR, { recursive: true });
+  return path.join(LOG_DIR, name);
+}
+
+function spawnBackground(command, args, options, logPath) {
+  const output = openSync(logPath, "a");
+  const child = spawn(command, args, {
+    ...options,
+    detached: true,
+    stdio: ["ignore", output, output],
+    windowsHide: true,
+  });
+  child.unref();
+  closeSync(output);
+  return child;
+}
+
+async function ensureTunnel(settings) {
+  if (await portOpen(settings.localDatabasePort)) {
+    log(`数据库入口已就绪（127.0.0.1:${settings.localDatabasePort}）`);
     return;
   }
 
-  log(`建立 SSH 隧道（本地 ${TUNNEL_LOCAL_PORT} → 服务器 ${TUNNEL_REMOTE_PORT}）…`);
+  log(`连接服务器数据库（${settings.sshUser}@${settings.sshHost}）…`);
+  const tunnelLog = runtimeLog("ssh-tunnel.log");
   const args = [
-    "-p", String(SERVER_PORT),
-    "-N",
-    "-o", "StrictHostKeyChecking=no",
+    "-p", String(settings.sshPort), "-N",
+    "-i", settings.sshIdentityFile,
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=10",
+    "-o", "StrictHostKeyChecking=accept-new",
     "-o", "ServerAliveInterval=60",
+    "-o", "ServerAliveCountMax=3",
     "-o", "ExitOnForwardFailure=yes",
-    "-L", `${TUNNEL_LOCAL_PORT}:127.0.0.1:${TUNNEL_REMOTE_PORT}`,
-    `${SERVER_USER}@${SERVER_HOST}`,
+    "-o", "IdentitiesOnly=yes",
+    "-L", `127.0.0.1:${settings.localDatabasePort}:${settings.remoteDatabaseHost}:${settings.remoteDatabasePort}`,
+    `${settings.sshUser}@${settings.sshHost}`,
   ];
+  const tunnel = spawnBackground("ssh", args, { cwd: ROOT }, tunnelLog);
 
-  // Windows 下 ssh 在 Git 的 usr/bin 里，用 cmd 执行确保能找到
-  const sshCommand = process.platform === "win32"
-    ? `ssh ${args.join(" ")}`
-    : `ssh ${args.join(" ")}`;
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    await delay(1000);
+    if (await portOpen(settings.localDatabasePort)) {
+      log("SSH 数据库隧道建立成功");
+      return;
+    }
+    if (tunnel.exitCode !== null) break;
+  }
+  throw new Error(`SSH 隧道建立失败。请确认公钥已加入服务器，详情见 ${tunnelLog}`);
+}
 
-  const tunnel = spawn(WINDOWS_CMD, ["/c", sshCommand], {
-    stdio: "ignore",
-    detached: true,
-  });
-  tunnel.unref();
+async function backendHealth(port, deep = false) {
+  try {
+    const suffix = deep ? "?deep=1" : "";
+    const response = await fetch(`http://127.0.0.1:${port}/api/health${suffix}`, {
+      signal: AbortSignal.timeout(deep ? 12_000 : 3_000),
+    });
+    const payload = await response.json();
+    return response.ok ? payload?.data : null;
+  } catch {
+    return null;
+  }
+}
 
-  // 等待隧道建立
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    if (await portOpen(TUNNEL_LOCAL_PORT)) {
-      log("SSH 隧道建立成功");
+async function ensureBackend(settings) {
+  if (await portOpen(settings.backendPort)) {
+    const health = await backendHealth(settings.backendPort, true);
+    if (health?.service === "billcompare" && health.database === "ok" && health.cherryStudio?.status === "ok") {
+      log(`后端、数据库和 CherryStudio 已就绪（端口 ${settings.backendPort}）`);
+      return;
+    }
+    throw new Error(`${settings.backendPort} 端口上的后端未通过深度检查。请确认 CherryStudio 企业版已启动且 API Key 正确`);
+  }
+
+  log("生成数据库客户端并应用迁移…");
+  runNpm(["run", "prisma:generate"], SERVER_DIR);
+  runNpm(["run", "prisma:deploy"], SERVER_DIR);
+
+  const backendLog = runtimeLog("backend.log");
+  log(`启动后端（日志：${backendLog}）…`);
+  const tsxCli = path.join(SERVER_DIR, "node_modules", "tsx", "dist", "cli.mjs");
+  spawnBackground(process.execPath, [tsxCli, "src/index.ts"], {
+    cwd: SERVER_DIR,
+    env: { ...process.env },
+  }, backendLog);
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await delay(1000);
+    const health = await backendHealth(settings.backendPort, true);
+    if (health?.service === "billcompare" && health.database === "ok" && health.cherryStudio?.status === "ok") {
+      log("后端、数据库和 CherryStudio 启动成功");
       return;
     }
   }
-  log("⚠️ SSH 隧道可能未建立，请检查免密登录配置");
+  throw new Error(`后端未通过深度健康检查，详情见 ${backendLog}`);
 }
 
-// 2. 启动后端
-async function ensureBackend() {
-  const isOpen = await portOpen(BACKEND_PORT);
-  if (isOpen) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/health?deep=1`, { signal: AbortSignal.timeout(10000) });
-      const payload = await response.json();
-      if (response.ok && payload?.data?.service === "billcompare" && payload?.data?.database === "ok" && payload?.data?.cherryStudio?.status === "ok") {
-        log(`后端、数据库和 CherryStudio 已就绪（端口 ${BACKEND_PORT}）`);
-        return;
-      }
-    } catch {
-      // The occupied port is not a healthy billcompare backend.
-    }
-    throw new Error(`${BACKEND_PORT} 端口已被其他程序或旧版后端占用，请先关闭该进程`);
-  }
-
-  log("检查数据库迁移…");
-  execFileSync(WINDOWS_CMD, ["/c", "npx prisma generate && npx prisma migrate deploy"], {
-    cwd: SERVER_DIR,
-    stdio: "inherit",
-  });
-
-  log(`启动后端（端口 ${BACKEND_PORT}）…`);
-  const backend = spawn(WINDOWS_CMD, ["/c", "npx tsx src/index.ts"], {
-    cwd: SERVER_DIR,
-    stdio: "inherit",
-    detached: true,
-    env: { ...process.env },
-  });
-  backend.unref();
-
-  for (let i = 0; i < 15; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    if (await portOpen(BACKEND_PORT)) {
-      try {
-        const response = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/health?deep=1`, { signal: AbortSignal.timeout(10000) });
-        const payload = await response.json();
-        if (response.ok && payload?.data?.cherryStudio?.status === "ok") {
-          log("后端、数据库和 CherryStudio 启动成功");
-          return;
-        }
-      } catch {
-        // The server may still be starting.
-      }
-    }
-  }
-  log("⚠️ 后端可能未启动成功，请查看日志");
-}
-
-// 3. 启动前端
 async function ensureFrontend() {
-  const isOpen = await portOpen(FRONTEND_PORT);
-  if (isOpen) {
+  if (await portOpen(FRONTEND_PORT)) {
     try {
       const response = await fetch(`http://127.0.0.1:${FRONTEND_PORT}/`, { signal: AbortSignal.timeout(3000) });
       const html = await response.text();
@@ -140,60 +255,57 @@ async function ensureFrontend() {
         return;
       }
     } catch {
-      // The occupied port is not the billcompare frontend.
+      // 继续抛出明确的端口占用错误。
     }
-    throw new Error(`${FRONTEND_PORT} 端口已被其他程序占用，请先关闭该进程`);
+    throw new Error(`${FRONTEND_PORT} 端口已被其他程序占用`);
   }
 
-  log(`启动前端（端口 ${FRONTEND_PORT}）…`);
-  const frontend = spawn(WINDOWS_CMD, ["/c", `npx vite --host 127.0.0.1 --port ${FRONTEND_PORT}`], {
+  const frontendLog = runtimeLog("frontend.log");
+  log(`启动前端（日志：${frontendLog}）…`);
+  const viteCli = path.join(ROOT, "node_modules", "vite", "bin", "vite.js");
+  spawnBackground(process.execPath, [viteCli, "--host", "127.0.0.1", "--port", String(FRONTEND_PORT)], {
     cwd: ROOT,
-    stdio: "inherit",
-    detached: true,
-  });
-  frontend.unref();
+    env: { ...process.env },
+  }, frontendLog);
 
-  for (let i = 0; i < 15; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    await delay(1000);
     if (await portOpen(FRONTEND_PORT)) {
       log("前端启动成功");
       return;
     }
   }
-  log("⚠️ 前端可能未启动成功，请查看日志");
+  throw new Error(`前端未启动成功，详情见 ${frontendLog}`);
 }
 
-// 4. 打开浏览器
 function openBrowser() {
   const url = `http://127.0.0.1:${FRONTEND_PORT}/`;
   log(`打开浏览器：${url}`);
   try {
-    if (process.platform === "win32") {
-      execFileSync("cmd.exe", ["/c", "start", "", url]);
-    } else if (process.platform === "darwin") {
-      execFileSync("open", [url]);
-    } else {
-      execFileSync("xdg-open", [url]);
-    }
+    if (process.platform === "win32") execFileSync("cmd.exe", ["/c", "start", "", url]);
+    else if (process.platform === "darwin") execFileSync("open", [url]);
+    else execFileSync("xdg-open", [url]);
   } catch {
-    log(`自动打开浏览器失败，请手动访问 ${url}`);
+    log(`无法自动打开浏览器，请手动访问 ${url}`);
   }
 }
 
-// 主流程
 async function main() {
-  log("===== 锐力对账系统 一键启动 =====");
-  await ensureTunnel();
-  await ensureBackend();
+  log("===== 锐力对账系统一键启动 =====");
+  assertPrerequisites();
+  const settings = ensureConfiguration();
+  ensureDependencies();
+  await ensureTunnel(settings);
+  await ensureBackend(settings);
   await ensureFrontend();
-  openBrowser();
+  if (!NO_BROWSER) openBrowser();
   log("===== 全部启动完成 =====");
-  log("前端: http://127.0.0.1:" + FRONTEND_PORT + "/");
-  log("后端: http://127.0.0.1:" + BACKEND_PORT + "/api/health");
-  log("提示: 关闭此窗口不会停止服务（后台运行）。");
+  log(`前端：http://127.0.0.1:${FRONTEND_PORT}/`);
+  log(`后端：http://127.0.0.1:${settings.backendPort}/api/health`);
+  log(`运行日志：${LOG_DIR}`);
 }
 
-main().catch((e) => {
-  console.error("[一键启动] 出错:", e);
+main().catch((error) => {
+  console.error("\n[一键启动] 启动失败：", error instanceof Error ? error.message : error);
   process.exit(1);
 });

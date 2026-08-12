@@ -46,6 +46,7 @@ statisticsRouter.get("/", async (req, res, next) => {
       NEEDS_REVIEW: 0,
       REVIEWED: 0,
       FAILED: 0,
+      CANCELLED: 0,
       OBSOLETE: 0,
     };
     for (const row of byStatus) counts[row.status] = row._count;

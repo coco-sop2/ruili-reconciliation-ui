@@ -6,6 +6,7 @@ export type ReconciliationStatus =
   | "NEEDS_REVIEW"
   | "REVIEWED"
   | "FAILED"
+  | "CANCELLED"
   | "OBSOLETE";
 
 export type Money = {
@@ -47,6 +48,7 @@ export type ReconciliationReviewItem = {
 
 export type ReconciliationTaskSummary = {
   id: string;
+  name: string | null;
   status: ReconciliationStatus;
   periodLabel: string | null;
   settlementFile: UploadedFile;

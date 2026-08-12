@@ -32,7 +32,7 @@ export class DisabledReconciliationApi implements ReconciliationApi {
     await wait(120);
     const keyword = params.keyword?.trim().toLowerCase();
     const keywordMatches = disabledTasks.filter((task) => {
-      return !keyword || [task.id, task.periodLabel ?? "", task.settlementFile.name, task.erpFile.name, task.createdBy.name]
+      return !keyword || [task.id, task.name ?? "", task.periodLabel ?? "", task.settlementFile.name, task.erpFile.name, task.createdBy.name]
         .some((value) => value.toLowerCase().includes(keyword));
     });
     const filtered = keywordMatches.filter((task) => !params.status?.length || params.status.includes(task.status));
@@ -41,7 +41,7 @@ export class DisabledReconciliationApi implements ReconciliationApi {
     const start = (page - 1) * pageSize;
     const byStatus = keywordMatches.reduce<Record<ReconciliationStatus, number>>(
       (counts, task) => ({ ...counts, [task.status]: counts[task.status] + 1 }),
-      { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, REVIEWED: 0, FAILED: 0, OBSOLETE: 0 },
+      { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, REVIEWED: 0, FAILED: 0, CANCELLED: 0, OBSOLETE: 0 },
     );
     return {
       items: filtered.slice(start, start + pageSize),
@@ -67,6 +67,16 @@ export class DisabledReconciliationApi implements ReconciliationApi {
     await wait(120);
     throw new ReconciliationApiError(
       `未配置真实后端接口，无法删除任务 ${taskId}`,
+      "API_BASE_URL_REQUIRED",
+      "local-no-api",
+      503,
+    );
+  }
+
+  async stopTask(taskId: string): Promise<void> {
+    await wait(120);
+    throw new ReconciliationApiError(
+      `未配置真实后端接口，无法停止任务 ${taskId}`,
       "API_BASE_URL_REQUIRED",
       "local-no-api",
       503,

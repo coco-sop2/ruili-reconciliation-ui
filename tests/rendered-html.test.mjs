@@ -4,6 +4,12 @@ import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
+function extractPromptTemplate(fileSource) {
+  const match = fileSource.match(/return `(我有一个对账任务：[\s\S]*?- name: 字符串，drp表单中的商城名称)`/);
+  assert.ok(match, "未找到对账 Prompt 模板");
+  return match[1];
+}
+
 async function readBuiltClient() {
   const assetsDirectory = new URL("../dist/assets/", import.meta.url);
   const assetNames = await readdir(assetsDirectory);
@@ -34,8 +40,10 @@ test("routes reconciliation through the HTTP backend", async () => {
     reviewHook,
     overview,
     serverTasks,
+    serverReviewItems,
     serverFiles,
     reconciliationService,
+    promptTemplate,
     cherryStudio,
     schema,
   ] = await Promise.all([
@@ -45,8 +53,10 @@ test("routes reconciliation through the HTTP backend", async () => {
     source("../src/features/reconciliation/hooks/use-review-items.ts"),
     source("../src/features/reconciliation/components/OverviewView.tsx"),
     source("../server/src/routes/tasks.ts"),
+    source("../server/src/routes/review-items.ts"),
     source("../server/src/routes/files.ts"),
     source("../server/src/services/reconciliation.ts"),
+    source("../src/features/reconciliation/api/prompt.ts"),
     source("../server/src/lib/cherrystudio.ts"),
     source("../server/prisma/schema.prisma"),
   ]);
@@ -58,29 +68,49 @@ test("routes reconciliation through the HTTP backend", async () => {
   assert.match(httpClient, /erpFile/);
   assert.match(httpClient, /updateReviewItem/);
   assert.match(httpClient, /deleteTask/);
+  assert.match(httpClient, /stopTask/);
+  assert.match(httpClient, /\/stop/);
   assert.match(httpClient, /method: "DELETE"/);
   assert.match(taskProvider, /progressLogs/);
   assert.match(taskProvider, /pollIntervalMs/);
   assert.match(reviewHook, /reconciliationApi\.updateReviewItem/);
+  assert.match(reviewHook, /\["NEEDS_REVIEW", "REVIEWED"\]/);
   assert.match(overview, /window\.confirm/);
+  assert.match(overview, /record\.name/);
 
   assert.match(serverTasks, /status\(202\)/);
   assert.match(serverTasks, /getTaskProgress/);
   assert.match(serverTasks, /tasksRouter\.delete/);
+  assert.match(serverTasks, /tasksRouter\.post\("\/:id\/stop"/);
   assert.match(serverTasks, /transaction\.reconciliationTask\.delete/);
   assert.match(serverTasks, /transaction\.file\.updateMany/);
   assert.match(serverFiles, /toUpperCase\(\)/);
   assert.match(reconciliationService, /files\/SETTLEMENT/);
   assert.match(reconciliationService, /files\/ERP/);
+  assert.doesNotMatch(reconciliationService, /attemptCount >= 3/);
+  assert.doesNotMatch(reconciliationService, /RETRY_LIMIT_REACHED/);
+  assert.doesNotMatch(reconciliationService, /data:\s*\{\s*status:\s*TaskStatus\.OBSOLETE/);
+  assert.match(reconciliationService, /每次对账都是独立业务记录/);
+  assert.match(serverReviewItems, /SELECT 1 AS acquired\s+FROM pg_advisory_xact_lock/);
+  assert.doesNotMatch(serverReviewItems, /SELECT pg_advisory_xact_lock/);
   assert.match(cherryStudio, /createAgentSession/);
   assert.match(cherryStudio, /method: "POST"/);
   assert.match(cherryStudio, /buildReconciliationSessionName/);
   assert.match(cherryStudio, /AbortSignal\.timeout/);
   assert.match(cherryStudio, /normalizeDifferenceDirection/);
-  assert.match(reconciliationService, /ERP - 结算/);
+  assert.match(cherryStudio, /extractTaskName/);
+  assert.match(reconciliationService, /ERP 金额 - 结算单金额/);
+  assert.match(reconciliationService, /drp表单中的商城名称/);
+  assert.match(reconciliationService, /SELECT 1 AS acquired\s+FROM pg_advisory_xact_lock/);
+  assert.doesNotMatch(reconciliationService, /SELECT pg_advisory_xact_lock/);
+  assert.match(promptTemplate, /drp表单中的商城名称/);
+  assert.match(promptTemplate, /"issues": ""/);
+  assert.match(promptTemplate, /格式必须为 "YYYY-MM"/);
+  assert.equal(extractPromptTemplate(reconciliationService), extractPromptTemplate(promptTemplate));
 
   assert.match(schema, /provider = "postgresql"/);
   assert.match(schema, /model ReconciliationTask/);
+  assert.match(schema, /name\s+String\?/);
   assert.match(schema, /model ReconciliationReviewItem/);
   assert.match(schema, /model File/);
 });

@@ -21,7 +21,15 @@ export function StartView() {
     handleSettlementFileChange,
     handleErpFileChange,
   } = useStartReconciliation();
-  const { running, error, logs, startReconciliation } = useReconciliationTask();
+  const {
+    running,
+    canStop,
+    stopping,
+    error,
+    logs,
+    startReconciliation,
+    stopReconciliation,
+  } = useReconciliationTask();
 
   const canStart = Boolean(settlementFile && erpFile);
 
@@ -116,9 +124,15 @@ export function StartView() {
             <small>{settlementFile && erpFile ? "点击后仅创建服务端任务，处理过程将实时显示" : "系统需要同时提交结算资料和 ERP 资料"}</small>
           </div>
         </div>
-        <button type="button" className="primary-button" disabled={!canStart || running} onClick={handleSubmit}>
-          {running ? <><span className="spinner" /> 正在提交任务</> : <>开始对账<span>→</span></>}
-        </button>
+        {running ? (
+          <button type="button" className="stop-button" disabled={!canStop || stopping} onClick={() => void stopReconciliation()}>
+            <span aria-hidden="true">■</span> {canStop ? (stopping ? "正在停止" : "停止对账") : "正在创建任务"}
+          </button>
+        ) : (
+          <button type="button" className="primary-button" disabled={!canStart} onClick={handleSubmit}>
+            开始对账<span>→</span>
+          </button>
+        )}
       </section>
 
       {formError && <div className="api-error" role="alert"><b>文件校验失败</b><span>{formError}</span></div>}

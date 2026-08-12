@@ -25,6 +25,8 @@ export function OverviewView() {
     openDetails,
     deleteTask,
     deletingTaskId,
+    stopTask,
+    stoppingTaskId,
     pageSize,
   } = useReconciliationOverview();
 
@@ -71,7 +73,7 @@ export function OverviewView() {
           <div><h2>历史对账</h2><span>共 {total} 条任务</span></div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索任务编号、文件或负责人" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索商城名称、任务编号或文件" />
           </label>
         </div>
 
@@ -79,6 +81,7 @@ export function OverviewView() {
           {([
             ["all", "全部", counts.all], ["success", "成功", counts.success], ["issue", "有差异", counts.issue],
             ["failed", "失败", counts.failed], ["processing", "进行中", counts.processing],
+            ["cancelled", "已停止", counts.cancelled],
           ] as const).map(([value, label, count]) => (
             <button key={value} type="button" className={filter === value ? "active" : ""} onClick={() => { setFilter(value); setPage(1); }}>
               {label}<span>{count}</span>
@@ -88,11 +91,11 @@ export function OverviewView() {
 
         <div className="table-wrap">
           <table>
-            <thead><tr><th>任务 / 账期</th><th>文件</th><th>结算金额</th><th>匹配条目</th><th>差异金额</th><th>状态</th><th>执行时间</th><th aria-label="操作" /></tr></thead>
+            <thead><tr><th>商城 / 账期</th><th>文件</th><th>结算金额</th><th>匹配条目</th><th>差异金额</th><th>状态</th><th>执行时间</th><th aria-label="操作" /></tr></thead>
             <tbody>
               {records.map((record) => (
                 <tr key={record.id} onClick={() => void openDetails(record.id)}>
-                  <td><strong>{record.id}</strong><span>{record.period}</span></td>
+                  <td><strong>{record.name}</strong><span>{record.period}</span></td>
                   <td className="file-cell"><strong>{record.settlement}</strong><span>{record.erp}</span></td>
                   <td className="number-cell">{record.amount}</td>
                   <td className="number-cell">{record.matched}</td>
@@ -101,6 +104,20 @@ export function OverviewView() {
                   <td><strong>{record.time}</strong><span>{record.owner}</span></td>
                   <td className="row-actions-cell">
                     <div className="row-actions">
+                      {record.status === "processing" && (
+                        <button
+                          type="button"
+                          className="row-stop"
+                          aria-label={`停止 ${record.id}`}
+                          title="停止对账"
+                          disabled={stoppingTaskId === record.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const confirmed = window.confirm("确定停止这条对账任务吗？正在执行的 Agent Session 将被终止，已上传文件会保留。\n\n停止后可在总览中删除任务。");
+                            if (confirmed) void stopTask(record.id);
+                          }}
+                        >{stoppingTaskId === record.id ? "…" : "■"}</button>
+                      )}
                       <button
                         type="button"
                         className="row-action"
