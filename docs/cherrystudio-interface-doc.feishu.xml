@@ -71,7 +71,7 @@ flowchart TD
     <tr><td><code>index.html</code></td><td>浏览器最先加载的 HTML，里面指定入口脚本 <code>/src/app/main.tsx</code>。</td></tr>
     <tr><td><code>package.json</code></td><td>项目说明、依赖列表、常用命令，比如 <code>dev</code>、<code>build</code>、<code>lint</code>、<code>test</code>。</td></tr>
     <tr><td><code>package-lock.json</code></td><td>锁定依赖版本，保证别人安装出来的依赖和你基本一致。</td></tr>
-    <tr><td><code>.env.example</code></td><td>环境变量示例，主要配置 CherryStudio agent 地址和 skill 名称。</td></tr>
+    <tr><td><code>.env.example</code></td><td>环境变量示例，主要配置 CherryStudio 地址和 Agent 默认值。API Key 在页面填写。</td></tr>
     <tr><td><code>vite.config.ts</code></td><td>Vite 构建和开发服务器配置。</td></tr>
     <tr><td><code>tsconfig.json</code></td><td>TypeScript 检查规则和路径配置。</td></tr>
     <tr><td><code>eslint.config.mjs</code></td><td>代码规范检查配置。</td></tr>
@@ -96,7 +96,7 @@ flowchart LR
 
 <h1>6. 对外接口：开始对账 POST</h1>
 
-<p>用户点击“开始对账”后，前端先上传两份文件，再按页面填写的 Agent 名称和/或工作目录调用 CherryStudio API 匹配唯一 Agent，读取它的唯一 session，最后向 messages 接口发送 JSON prompt。前端不会读取文件内容，也不会自己算金额。</p>
+<p>用户在页面填写 API Key 并点击“开始对账”后，前端先上传两份文件，再按 Agent 名称和/或工作目录调用 CherryStudio API 匹配唯一 Agent，读取它的唯一 session，最后向 messages 接口发送 JSON prompt。API Key 只在当前页面会话的内存中保留。前端不会读取文件内容，也不会自己算金额。</p>
 
 <table>
   <thead>
@@ -118,6 +118,7 @@ flowchart LR
     <tr><th background-color="light-gray">输入</th><th background-color="light-gray">匹配方式</th><th background-color="light-gray">说明</th></tr>
   </thead>
   <tbody>
+    <tr><td>API Key</td><td>作为 Bearer 凭证</td><td>页面必填，仅在当前会话内存中保留。</td></tr>
     <tr><td>Agent 名称</td><td>精确匹配 <code>agent.name</code></td><td>默认可由环境变量预填。</td></tr>
     <tr><td>Agent 工作目录</td><td>规范化后匹配 <code>accessible_paths</code></td><td>名称重复时用于消除歧义。</td></tr>
     <tr><td>文件 URL</td><td>写入 prompt</td><td>ERP 与结算单文件先由上传接口生成可访问 URL。</td></tr>

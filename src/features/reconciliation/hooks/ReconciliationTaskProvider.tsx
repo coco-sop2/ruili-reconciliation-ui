@@ -18,10 +18,16 @@ type ReconciliationTaskContextValue = {
   running: boolean;
   logs: ReconciliationProcessLog[];
   error: string;
+  apiKey: string;
+  setApiKey: (apiKey: string) => void;
   startReconciliation: (input: StartReconciliationInput) => Promise<void>;
 };
 
 const ReconciliationTaskContext = createContext<ReconciliationTaskContextValue | null>(null);
+
+function redactApiKey(message: string, apiKey: string) {
+  return message.replaceAll(apiKey, "••••••");
+}
 
 export function useReconciliationTask(): ReconciliationTaskContextValue {
   const value = useContext(ReconciliationTaskContext);
@@ -38,6 +44,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
   const [running, setRunning] = useState(false);
   const [logs, setLogs] = useState<ReconciliationProcessLog[]>([]);
   const [error, setError] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const logIdRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
@@ -61,6 +68,11 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
       setError("请至少填写 Agent 名称或工作目录");
       return;
     }
+    const requestApiKey = apiKey.trim();
+    if (!requestApiKey) {
+      setError("请填写 API Key");
+      return;
+    }
     const validationError = validateReconciliationFile(input.settlementFile) ?? validateReconciliationFile(input.erpFile);
     if (validationError) {
       setError(validationError);
@@ -69,29 +81,36 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
 
     setRunning(true);
     setError("");
-    appendLog("info", "点击「开始对账」，任务已提交");
+    const appendSafeLog = (level: ReconciliationProcessLog["level"], message: string) => {
+      appendLog(level, redactApiKey(message, requestApiKey));
+    };
+    appendSafeLog("info", "点击「开始对账」，任务已提交");
     try {
       const task = await reconciliationApi.createTask({
         settlementFile: input.settlementFile,
         erpFile: input.erpFile,
+        apiKey: requestApiKey,
         agentSelector: {
           name: input.agentName.trim() || undefined,
           workspace: input.agentWorkspace.trim() || undefined,
         },
-        onProgress: (log) => appendLog(log.level, log.message),
+        onProgress: (log) => appendSafeLog(log.level, log.message),
       });
       setRunning(false);
       onCompleteRef.current(task);
     } catch (requestError) {
-      const message = requestErrorMessage(requestError, "创建对账任务失败，请稍后重试");
-      appendLog("error", message);
+      const message = redactApiKey(
+        requestErrorMessage(requestError, "创建对账任务失败，请稍后重试"),
+        requestApiKey,
+      );
+      appendSafeLog("error", message);
       setError(message);
       setRunning(false);
     }
-  }, [running, appendLog]);
+  }, [running, apiKey, appendLog]);
 
   return (
-    <ReconciliationTaskContext.Provider value={{ running, logs, error, startReconciliation }}>
+    <ReconciliationTaskContext.Provider value={{ running, logs, error, apiKey, setApiKey, startReconciliation }}>
       {children}
     </ReconciliationTaskContext.Provider>
   );

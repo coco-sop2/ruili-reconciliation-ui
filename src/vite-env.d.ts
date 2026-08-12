@@ -4,7 +4,6 @@
 interface ImportMetaEnv {
   readonly VITE_RECONCILIATION_UPLOAD_URL?: string;
   readonly VITE_CHERRYSTUDIO_BASE_URL?: string;
-  readonly VITE_CHERRYSTUDIO_API_KEY?: string;
   readonly VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME?: string;
   readonly VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE?: string;
 }

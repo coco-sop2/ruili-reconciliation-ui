@@ -15,21 +15,22 @@ npm run dev
 
 ## CherryStudio 配置
 
-复制 `.env.example` 为 `.env.local`，填写上传服务和 CherryStudio 参数：
+复制 `.env.example` 为 `.env.local`，按需填写上传服务和 CherryStudio 地址：
 
 ```env
 # 可留空；开发/预览服务器会使用内置本地上传端点
 VITE_RECONCILIATION_UPLOAD_URL=
 VITE_CHERRYSTUDIO_BASE_URL=http://127.0.0.1:24333
-VITE_CHERRYSTUDIO_API_KEY=your-api-key
 VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=锐力体育
 VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
 ```
 
+API Key 不需要写入环境文件。请在“发起一笔新对账”页面的必填输入框中填写；Key 只保留在当前页面会话的内存中，刷新页面后需重新输入。
+
 点击“开始对账”后：
 
 1. 前端把两份文件上传到本地 Vite 上传端点，获得 CherryStudio 可访问的 HTTP URL；配置 `VITE_RECONCILIATION_UPLOAD_URL` 时改用外部上传服务。
-2. 前端根据页面填写的 Agent 名称和/或工作目录调用 `/v1/agents`，唯一匹配 Agent ID。
+2. 前端使用页面填写的 API Key，并根据 Agent 名称和/或工作目录调用 `/v1/agents`，唯一匹配 Agent ID。
 3. 前端读取该 Agent 的 session；当前要求恰好只有一个 session。
 4. 前端把文件 URL 填入 `buildReconciliationPrompt`，向 `/v1/agents/{agentId}/sessions/{sessionId}/messages` 发送 `{ "content": prompt }`。
 5. agent 返回 `{ "matched": boolean, "difference": number }`；前端将其映射到成功或待审核状态。
@@ -38,7 +39,7 @@ VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
 
 内置上传端点适用于 `npm run dev` 和 `npm run start` 的本机流程，文件临时保存在操作系统临时目录。纯静态托管生产环境应配置独立的 `VITE_RECONCILIATION_UPLOAD_URL`。
 
-> `VITE_*` 环境变量会打包到浏览器代码中。本机受控场景可以直接使用；公开部署应通过服务端代理调用 CherryStudio，避免暴露 API Key。
+> API Key 会由浏览器直接用于 CherryStudio 请求。当前方式适用于本机受控环境；公开部署应通过服务端代理调用 CherryStudio，避免向浏览器暴露长期凭证。
 
 ## 常用命令
 
