@@ -23,7 +23,7 @@ export function StartView() {
   } = useStartReconciliation();
   const { running, error, logs, startReconciliation } = useReconciliationTask();
 
-  const canStart = Boolean(settlementFile && erpFile && (agentName.trim() || agentWorkspace.trim()));
+  const canStart = Boolean(settlementFile && erpFile);
 
   const handleSubmit = () => {
     if (!settlementFile || !erpFile) return;
@@ -70,7 +70,7 @@ export function StartView() {
               type="text"
               value={agentName}
               onChange={(event) => setAgentName(event.target.value)}
-              placeholder="例如：锐力体育"
+              placeholder="留空时使用后端默认 Agent"
               autoComplete="off"
             />
           </label>

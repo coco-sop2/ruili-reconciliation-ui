@@ -1,0 +1,51 @@
+import path from "node:path";
+import fs from "node:fs";
+
+// 读取 .env 文件（简单实现，不引入 dotenv 依赖，Prisma 已加载 DATABASE_URL）
+function loadEnvFile() {
+  const envPath = path.resolve(process.cwd(), ".env");
+  if (!fs.existsSync(envPath)) return;
+  const content = fs.readFileSync(envPath, "utf-8");
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+loadEnvFile();
+
+function intFromEnv(key: string, fallback: number) {
+  const value = process.env[key];
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export const config = {
+  port: intFromEnv("PORT", 3001),
+  host: process.env.HOST || "127.0.0.1",
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || "http://127.0.0.1:3333,http://localhost:3333")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+  uploadDir: process.env.UPLOAD_DIR || "./data/files",
+  cherryStudio: {
+    baseUrl: (process.env.CHERRYSTUDIO_BASE_URL || "http://127.0.0.1:24333").replace(/\/$/, ""),
+    apiKey: process.env.CHERRYSTUDIO_API_KEY || "",
+    defaultAgentName: process.env.CHERRYSTUDIO_DEFAULT_AGENT_NAME || "锐力",
+    defaultAgentWorkspace: process.env.CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE || "",
+    lookupTimeoutMs: intFromEnv("CHERRYSTUDIO_LOOKUP_TIMEOUT_MS", 15_000),
+    requestTimeoutMs: intFromEnv("CHERRYSTUDIO_REQUEST_TIMEOUT_MS", 20 * 60 * 1000),
+  },
+  maxUploadBytes: 20 * 1024 * 1024, // 20 MB
+};
+
+export function resolveUploadDir() {
+  return path.resolve(process.cwd(), config.uploadDir);
+}

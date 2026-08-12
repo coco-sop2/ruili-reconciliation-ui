@@ -4,7 +4,9 @@ export type ReconciliationStatus =
   | "PROCESSING"
   | "SUCCEEDED"
   | "NEEDS_REVIEW"
-  | "FAILED";
+  | "REVIEWED"
+  | "FAILED"
+  | "OBSOLETE";
 
 export type Money = {
   currency: "CNY";
@@ -60,6 +62,7 @@ export type ReconciliationTaskSummary = {
 
 export type ReconciliationTaskDetail = ReconciliationTaskSummary & {
   reviewItems: ReconciliationReviewItem[];
+  progressLogs?: ReconciliationProcessLog[];
   failure: {
     code: string;
     message: string;
@@ -73,6 +76,7 @@ export type ReconciliationStatistics = {
   needsReviewTasks: number;
   failedTasks: number;
   processingTasks: number;
+  reviewedTasks?: number;
   autoMatchRate: number;
   monthOverMonthRate: number;
   totalDifferenceAmount: Money;

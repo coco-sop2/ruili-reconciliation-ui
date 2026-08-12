@@ -1,49 +1,59 @@
-# 锐力对账前端
+# 锐力对账
 
-这是一个 Vite + React 对账工作台。前端上传结算资料与 ERP 资料，将文件 URL 填入提示词，并向 CherryStudio agent session 发送对账消息；文件解析、OCR、金额计算和结果判断由 agent 完成。
+这是一个 Vite + React 前端、Express + Prisma 后端的本机对账工作台。前端只负责上传资料、展示任务和处理审核；后端保存文件和任务，通过 CherryStudio Enterprise Agent 完成文件识别与对账，并把结果写入 PostgreSQL。
 
 ## 启动
 
-需要 Node.js `>=22.13.0`。
+推荐在 Windows 中双击 `一键启动.bat`。它会检查数据库 SSH 隧道、后端和前端，再打开：
 
-```bash
+- 前端：`http://127.0.0.1:3333/`
+- 后端健康检查：`http://127.0.0.1:3001/api/health`
+
+也可以分别启动：
+
+```powershell
 npm install
+cd server
+npm install
+npm run prisma:generate
+npm run prisma:deploy
 npm run dev
 ```
 
-本地开发地址默认为 `http://localhost:3333/`。
+另开终端，在项目根目录执行：
 
-## CherryStudio 配置
-
-复制 `.env.example` 为 `.env.local`，填写上传服务和 CherryStudio 参数：
-
-```env
-# 可留空；开发/预览服务器会使用内置本地上传端点
-VITE_RECONCILIATION_UPLOAD_URL=
-VITE_CHERRYSTUDIO_BASE_URL=http://127.0.0.1:24333
-VITE_CHERRYSTUDIO_API_KEY=your-api-key
-VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=锐力体育
-VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
+```powershell
+npm run dev
 ```
 
-点击“开始对账”后：
+## 环境变量
 
-1. 前端把两份文件上传到本地 Vite 上传端点，获得 CherryStudio 可访问的 HTTP URL；配置 `VITE_RECONCILIATION_UPLOAD_URL` 时改用外部上传服务。
-2. 前端根据页面填写的 Agent 名称和/或工作目录调用 `/v1/agents`，唯一匹配 Agent ID。
-3. 前端读取该 Agent 的 session；当前要求恰好只有一个 session。
-4. 前端把文件 URL 填入 `buildReconciliationPrompt`，向 `/v1/agents/{agentId}/sessions/{sessionId}/messages` 发送 `{ "content": prompt }`。
-5. agent 返回 `{ "matched": boolean, "difference": number }`；前端将其映射到成功或待审核状态。
+前端仅使用：
 
-当前上传控件支持 `.xlsx`、`.xls`、`.pdf`、`.png`、`.jpg`、`.jpeg`，单个文件最大 20 MB。详细接口见 [CherryStudio Agent 调用契约](docs/cherrystudio-agent-contract.md)。
+```env
+VITE_API_BASE_URL=http://127.0.0.1:3001
+```
 
-内置上传端点适用于 `npm run dev` 和 `npm run start` 的本机流程，文件临时保存在操作系统临时目录。纯静态托管生产环境应配置独立的 `VITE_RECONCILIATION_UPLOAD_URL`。
+Agent 默认名称、工作目录和服务凭据都由后端配置，详见 `server/.env.example`。`CHERRYSTUDIO_API_KEY` 和 `DATABASE_URL` 只能保存在 `server/.env`，不要提交到 Git。
 
-> `VITE_*` 环境变量会打包到浏览器代码中。本机受控场景可以直接使用；公开部署应通过服务端代理调用 CherryStudio，避免暴露 API Key。
+## 对账流程
 
-## 常用命令
+1. 前端把结算资料与 ERP 资料上传到 `POST /api/tasks`。
+2. 后端在数据库创建任务和文件记录，并把原始文件保存到 `server/data/files`。
+3. 后端匹配 CherryStudio Agent，为每次任务创建独立 Session，并发送对账提示词。
+4. Agent 返回严格 JSON；差额统一定义为 `ERP 金额 - 结算金额`。
+5. 后端校验结果并写入任务和审核明细，前端通过任务详情接口轮询进度。
+6. 后端短暂断线时前端自动重连；服务重启后会从数据库恢复未完成任务，最多尝试三次。
 
-- `npm run dev`：启动开发服务器
-- `npm run build`：构建生产产物
-- `npm run start`：预览生产构建
-- `npm run lint`：运行代码规范检查
-- `npm test`：构建并运行项目约束测试
+## 检查
+
+```powershell
+npm test
+npm run typecheck
+npm run lint
+cd server
+npm run build
+npx prisma validate
+```
+
+服务默认只监听本机 `127.0.0.1`，并仅接受本机前端来源。如需部署到其他机器，应先增加正式鉴权、HTTPS 和受控的 CORS 配置。

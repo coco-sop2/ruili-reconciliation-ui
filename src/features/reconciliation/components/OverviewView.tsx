@@ -23,6 +23,8 @@ export function OverviewView() {
     trend,
     maxTrend,
     openDetails,
+    deleteTask,
+    deletingTaskId,
     pageSize,
   } = useReconciliationOverview();
 
@@ -42,7 +44,7 @@ export function OverviewView() {
       <div className="summary-grid">
         <article className="summary-card summary-card--total">
           <div><span>本月对账</span><b>{statistics?.totalTasks ?? "—"}</b></div>
-          <div className="mini-chart" aria-label="近七周对账任务量">
+          <div className="mini-chart" aria-label="近六个月对账任务量">
             {trend.map((item) => <i key={item.label} title={`${item.label}：${item.taskCount}笔`} style={{ height: `${Math.max(18, item.taskCount / maxTrend * 100)}%` }} />)}
           </div>
           <small>较上月 <strong>{statistics ? `${statistics.monthOverMonthRate >= 0 ? "+ " : ""}${(statistics.monthOverMonthRate * 100).toFixed(1)}%` : "—"}</strong></small>
@@ -97,7 +99,29 @@ export function OverviewView() {
                   <td className={`number-cell ${record.status === "issue" ? "number-cell--issue" : ""}`}>{record.variance}</td>
                   <td><span className={`status status--${record.status}`}><i />{statusLabels[record.status]}</span></td>
                   <td><strong>{record.time}</strong><span>{record.owner}</span></td>
-                  <td><button type="button" className="row-action" aria-label={`查看 ${record.id} 详情`}>…</button></td>
+                  <td className="row-actions-cell">
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="row-action"
+                        aria-label={`查看 ${record.id} 详情`}
+                        title="查看详情"
+                        onClick={(event) => { event.stopPropagation(); void openDetails(record.id); }}
+                      >…</button>
+                      <button
+                        type="button"
+                        className="row-delete"
+                        aria-label={`删除 ${record.id}`}
+                        title={record.status === "processing" ? "进行中的任务不能删除" : "删除任务"}
+                        disabled={record.status === "processing" || deletingTaskId === record.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const confirmed = window.confirm("确定永久删除这条对账任务吗？相关审核数据和服务器原始文件也会一并删除，此操作无法撤销。");
+                          if (confirmed) void deleteTask(record.id);
+                        }}
+                      >{deletingTaskId === record.id ? "…" : "×"}</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

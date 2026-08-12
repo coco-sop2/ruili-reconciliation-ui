@@ -17,7 +17,7 @@ export const reconciliationOverviewPageSize = 20;
 
 const emptyFacets = {
   total: 0,
-  byStatus: { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, FAILED: 0 },
+  byStatus: { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, REVIEWED: 0, FAILED: 0, OBSOLETE: 0 },
 };
 
 export function useReconciliationOverview() {
@@ -32,6 +32,7 @@ export function useReconciliationOverview() {
   const [selected, setSelected] = useState<ReconciliationView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const requestSequence = useRef(0);
 
   const loadTasks = useCallback(async () => {
@@ -136,6 +137,25 @@ export function useReconciliationOverview() {
     }
   };
 
+  const deleteTask = async (taskId: string) => {
+    setDeletingTaskId(taskId);
+    setError("");
+    try {
+      await reconciliationApi.deleteTask(taskId);
+      setSelected((current) => current?.id === taskId ? null : current);
+      if (tasks.length === 1 && page > 1) {
+        setPage((current) => Math.max(1, current - 1));
+      } else {
+        await loadTasks();
+      }
+      await loadStatistics();
+    } catch (requestError) {
+      setError(requestErrorMessage(requestError, "删除对账任务失败"));
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
+
   return {
     filter,
     setFilter,
@@ -155,6 +175,8 @@ export function useReconciliationOverview() {
     trend,
     maxTrend,
     openDetails,
+    deleteTask,
+    deletingTaskId,
     pageSize: reconciliationOverviewPageSize,
   };
 }

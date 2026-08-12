@@ -6,7 +6,7 @@ import type {
   ReconciliationTaskSummary,
 } from "./types";
 
-export type DisplayStatus = "success" | "issue" | "failed" | "processing";
+export type DisplayStatus = "success" | "issue" | "reviewed" | "failed" | "processing" | "obsolete";
 export type ReconciliationFilter = "all" | DisplayStatus;
 
 export type ReconciliationView = {
@@ -26,21 +26,27 @@ export type ReconciliationView = {
 export const statusLabels: Record<DisplayStatus, string> = {
   success: "对账成功",
   issue: "存在差异",
+  reviewed: "已复核",
   failed: "对账失败",
   processing: "对账中",
+  obsolete: "已作废",
 };
 
 export const statusFilters: Record<Exclude<ReconciliationFilter, "all">, ReconciliationStatus[]> = {
   success: ["SUCCEEDED"],
   issue: ["NEEDS_REVIEW"],
+  reviewed: ["REVIEWED"],
   failed: ["FAILED"],
   processing: ["QUEUED", "PROCESSING"],
+  obsolete: ["OBSOLETE"],
 };
 
 export function displayStatus(status: ReconciliationStatus): DisplayStatus {
   if (status === "SUCCEEDED") return "success";
   if (status === "NEEDS_REVIEW") return "issue";
+  if (status === "REVIEWED") return "reviewed";
   if (status === "FAILED") return "failed";
+  if (status === "OBSOLETE") return "obsolete";
   return "processing";
 }
 

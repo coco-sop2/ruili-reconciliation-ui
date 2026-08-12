@@ -19,11 +19,12 @@ export function ProcessLogPanel({ logs, running }: ProcessLogPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const prevRunningRef = useRef(running);
 
-  // 运行时始终展开；结束后自动收起（用户可手动展开回来）。
-  if (running !== prevRunningRef.current) {
-    prevRunningRef.current = running;
-    if (!running) setCollapsed(true);
-  }
+  useEffect(() => {
+    if (running !== prevRunningRef.current) {
+      prevRunningRef.current = running;
+      setCollapsed(!running);
+    }
+  }, [running]);
 
   useEffect(() => {
     const body = bodyRef.current;

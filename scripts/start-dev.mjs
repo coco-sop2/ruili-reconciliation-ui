@@ -61,7 +61,7 @@ if (!existsSync(viteBin)) {
   process.exit(1);
 }
 
-const child = spawn(process.execPath, [viteBin, "--host", "0.0.0.0"], {
+const child = spawn(process.execPath, [viteBin, "--host", "127.0.0.1"], {
   stdio: "inherit",
   shell: false,
 });

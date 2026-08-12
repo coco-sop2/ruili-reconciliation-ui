@@ -7,12 +7,8 @@ import { validateReconciliationFile } from "../model/file-rules";
 export function useStartReconciliation() {
   const [settlementFile, setSettlementFile] = useState<File | null>(null);
   const [erpFile, setErpFile] = useState<File | null>(null);
-  const [agentName, setAgentName] = useState(
-    (import.meta.env.VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME ?? "").trim(),
-  );
-  const [agentWorkspace, setAgentWorkspace] = useState(
-    (import.meta.env.VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE ?? "").trim(),
-  );
+  const [agentName, setAgentName] = useState("");
+  const [agentWorkspace, setAgentWorkspace] = useState("");
   const [formError, setFormError] = useState("");
 
   const createFileChangeHandler = (

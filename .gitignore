@@ -61,3 +61,12 @@ yarn-error.log*
 /账单*.md
 /账单*.pdf
 /账单*.xlsx
+
+# 后端上传文件（可能包含财务数据）
+/server/data/files/
+/server/node_modules/
+/server/dist/
+/server/*.log
+/server-delete-feature*.log
+/server-runtime*.log
+/frontend-runtime*.log

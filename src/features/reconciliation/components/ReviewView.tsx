@@ -17,6 +17,7 @@ export function ReviewView() {
     reviewedCount,
     loading,
     error,
+    updatingItemId,
     setReviewStatus,
   } = useReviewItems();
 
@@ -68,8 +69,8 @@ export function ReviewView() {
                     <td><span className={`review-pill review-pill--${status.toLowerCase()}`}>{reviewStatusLabels[status]}</span></td>
                     <td>
                       <div className="review-actions">
-                        <button type="button" onClick={() => setReviewStatus(item.id, "APPROVED")}>确认</button>
-                        <button type="button" onClick={() => setReviewStatus(item.id, "IGNORED")}>忽略</button>
+                        <button type="button" disabled={updatingItemId === item.id} onClick={() => void setReviewStatus(task.id, item.id, "APPROVED")}>确认</button>
+                        <button type="button" disabled={updatingItemId === item.id} onClick={() => void setReviewStatus(task.id, item.id, "IGNORED")}>忽略</button>
                       </div>
                     </td>
                   </tr>

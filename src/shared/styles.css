@@ -231,7 +231,14 @@ td > span:not(.status) { color: #929b9e; font-size: 8px; margin-top: 4px; }
 .status--failed { color: var(--danger); } .status--failed i { background: var(--danger); }
 .status--processing { color: var(--blue); } .status--processing i { background: var(--blue); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
-.row-action { border: 0; background: transparent; color: #8e999c; font-size: 22px; cursor: pointer; }
+.row-actions-cell { width: 82px; padding-inline: 8px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.row-action, .row-delete { width: 30px; height: 30px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; }
+.row-action { color: #8e999c; font-size: 22px; }
+.row-delete { color: #a8afb1; font-size: 20px; }
+.row-action:hover { color: var(--ink); background: #eef1f1; }
+.row-delete:hover:not(:disabled) { color: var(--danger); background: #fbe8e8; }
+.row-delete:disabled { color: #d0d5d6; cursor: not-allowed; }
 .empty-state { height: 180px; display: grid; place-content: center; text-align: center; }
 .empty-state b { font-size: 12px; }.empty-state span { margin-top: 8px; color: #929b9e; font-size: 9px; }
 .empty-state--error b { color: var(--danger); }
