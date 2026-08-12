@@ -97,6 +97,7 @@ export type ReconciliationProgressListener = (log: ReconciliationProcessLog) => 
 export type CreateReconciliationTaskInput = {
   settlementFile: File;
   erpFile: File;
+  apiKey: string;
   agentSelector: {
     name?: string;
     workspace?: string;

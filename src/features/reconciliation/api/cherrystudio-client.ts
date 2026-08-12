@@ -24,7 +24,6 @@ import type {
 type CherryStudioConfig = {
   baseUrl: string;
   uploadUrl: string;
-  apiKey: string;
 };
 
 const money = (value: string): Money => ({ currency: "CNY", value });
@@ -63,7 +62,7 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
 
     emitLog("info", "开始创建对账任务…");
     const target = await findCherryAgentSession(
-      { baseUrl: this.config.baseUrl, apiKey: this.config.apiKey },
+      { baseUrl: this.config.baseUrl, apiKey: input.apiKey },
       input.agentSelector,
       emitLog,
     );
@@ -78,7 +77,7 @@ export class CherryStudioReconciliationApi implements ReconciliationApi {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${this.config.apiKey}`,
+        Authorization: `Bearer ${input.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ content: prompt }),

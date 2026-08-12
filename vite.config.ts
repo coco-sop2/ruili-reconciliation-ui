@@ -1,6 +1,6 @@
 // 文件说明：Vite 开发服务器和生产构建配置。
 import react from "@vitejs/plugin-react";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -104,27 +104,15 @@ function localReconciliationUploadPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
-  const cherryStudioApiKey = env.VITE_CHERRYSTUDIO_API_KEY
-    || process.env.CHERRY_STUDIO_API_KEY
-    || process.env.CHERRYSTUDIO_API_KEY
-    || process.env.CHERRY_API_KEY
-    || "";
-
-  return {
-    plugins: [react(), localReconciliationUploadPlugin()],
-    define: {
-      "import.meta.env.VITE_CHERRYSTUDIO_API_KEY": JSON.stringify(cherryStudioApiKey),
-    },
-    server: {
-      host: "0.0.0.0",
-      port: 3333,
-      strictPort: true,
-    },
-    preview: {
-      host: "0.0.0.0",
-      port: 4173,
-    },
-  };
+export default defineConfig({
+  plugins: [react(), localReconciliationUploadPlugin()],
+  server: {
+    host: "0.0.0.0",
+    port: 3333,
+    strictPort: true,
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 4173,
+  },
 });

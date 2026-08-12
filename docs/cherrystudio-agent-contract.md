@@ -7,14 +7,13 @@
 ```env
 VITE_RECONCILIATION_UPLOAD_URL=
 VITE_CHERRYSTUDIO_BASE_URL=http://127.0.0.1:24333
-VITE_CHERRYSTUDIO_API_KEY=your-api-key
 VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=锐力体育
 VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
 ```
 
-页面允许填写 Agent 名称和工作目录。默认值来自 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME` 与 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE`。API Base 或 API Key 为空时，前端进入接口未配置状态。上传地址为空时使用 Vite 内置本地上传端点。
+页面允许填写 API Key、Agent 名称和工作目录。API Key 为必填项，只保留在当前页面会话的内存中，不写入环境文件或浏览器持久化存储。Agent 默认值来自 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME` 与 `VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE`。API Base 为空时，前端进入接口未配置状态；上传地址为空时使用 Vite 内置本地上传端点。
 
-> `VITE_*` 变量会进入浏览器构建产物。当前方式适用于本机受控环境；公开部署时应由服务端代理 CherryStudio 请求，避免向浏览器暴露 API Key。
+> API Key 会由浏览器直接用于 CherryStudio 请求。当前方式适用于本机受控环境；公开部署时应由服务端代理请求，避免向浏览器暴露长期凭证。
 
 ## 第一步：上传文件
 
@@ -54,7 +53,7 @@ VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
 
 ```http
 GET /v1/agents?limit=100&offset=0
-Authorization: Bearer <VITE_CHERRYSTUDIO_API_KEY>
+Authorization: Bearer <页面填写的 API Key>
 ```
 
 按名称做精确匹配；填写工作目录时，会将 `/`、`\\`、`.`、`..` 和 Windows 路径大小写规范化后，与 `accessible_paths` 比较。名称有重复时必须同时填写工作目录。
@@ -73,7 +72,7 @@ http://127.0.0.1:24333/v1/agents/{agentId}/sessions/{sessionId}/messages
 
 ```http
 POST /v1/agents/{agentId}/sessions/{sessionId}/messages
-Authorization: Bearer <VITE_CHERRYSTUDIO_API_KEY>
+Authorization: Bearer <页面填写的 API Key>
 Content-Type: application/json
 Accept: application/json
 ```

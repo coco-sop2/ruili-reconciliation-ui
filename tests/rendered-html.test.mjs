@@ -88,6 +88,12 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(pageSource, /validateReconciliationFile/);
   assert.match(pageSource, /Agent 名称/);
   assert.match(pageSource, /Agent 工作目录/);
+  assert.match(pageSource, /API Key（必填）/);
+  assert.match(pageSource, /type="password"/);
+  assert.match(pageSource, /apiKey\.trim\(\)/);
+  assert.match(pageSource, /apiKey: requestApiKey/);
+  assert.match(pageSource, /redactApiKey/);
+  assert.match(pageSource, /appendSafeLog/);
 
   assert.match(apiSource, /createReconciliationPromptPayload/);
   assert.match(apiSource, /buildReconciliationPrompt/);
@@ -105,7 +111,7 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.doesNotMatch(cherryStudioClient, /FormData|multipart\/form-data/);
   assert.match(apiSource, /JSON\.stringify\(\{ content: prompt \}\)/);
   assert.match(apiSource, /method: "POST"/);
-  assert.match(apiSource, /VITE_CHERRYSTUDIO_API_KEY/);
+  assert.doesNotMatch(runtimeSource, /VITE_CHERRYSTUDIO_API_KEY/);
   assert.match(apiSource, /findCherryAgentSession/);
   assert.match(apiSource, /\/v1\/agents\?limit=100&offset=/);
   assert.match(apiSource, /createCherryAgentSession/);
@@ -118,7 +124,7 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(apiSource, /summary/);
   assert.match(apiSource, /reviewItemsFromResponse/);
   assert.doesNotMatch(cherryStudioClient, /"Idempotency-Key"/);
-  assert.match(apiSource, /Authorization: `Bearer \$\{this\.config\.apiKey\}`/);
+  assert.match(apiSource, /Authorization: `Bearer \$\{input\.apiKey\}`/);
   assert.match(apiSource, /"Content-Type": "application\/json"/);
   assert.match(apiSource, /matched/);
   assert.match(apiSource, /difference/);
@@ -142,7 +148,7 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(contract, /PDF/);
   assert.match(contract, /extension/);
   assert.match(envExample, /VITE_RECONCILIATION_UPLOAD_URL=/);
-  assert.match(envExample, /VITE_CHERRYSTUDIO_API_KEY=/);
+  assert.doesNotMatch(envExample, /VITE_CHERRYSTUDIO_API_KEY=/);
   assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=/);
   assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=/);
   assert.doesNotMatch(envExample, /VITE_API_BASE_URL/);
