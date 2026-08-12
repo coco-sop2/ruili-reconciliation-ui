@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
+import { createServer } from "vite";
 
 async function readBuiltClient() {
   const assetsDirectory = new URL("../dist/assets/", import.meta.url);
@@ -152,4 +153,49 @@ test("routes reconciliation work through CherryStudio", async () => {
   assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=/);
   assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=/);
   assert.doesNotMatch(envExample, /VITE_API_BASE_URL/);
+});
+
+test("keeps raw reasoning and tool details in stable process logs", async (t) => {
+  const vite = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  t.after(() => vite.close());
+  const { readCherryStudioJson } = await vite.ssrLoadModule("/src/features/reconciliation/api/response-adapter.ts");
+  const encoder = new TextEncoder();
+  const reasoning = "the JPG using mineru.\n扣点 rates for different sales amounts\n17.00";
+  const command = "curl -s -o /tmp/erp.xlsx https://example.test/full-command-that-must-not-be-truncated";
+  const processEvents = [];
+  const encodeEvents = (events) => encoder.encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encodeEvents([
+        { type: "start" },
+        { type: "reasoning-start" },
+        { type: "reasoning-delta", text: reasoning.slice(0, 20) },
+      ]));
+      setTimeout(() => {
+        controller.enqueue(encodeEvents([
+          { type: "reasoning-delta", text: reasoning.slice(20) },
+          { type: "reasoning-end" },
+          { type: "tool-call", toolName: "Bash", input: { command } },
+          { type: "tool-result", toolName: "Bash", output: "ERP downloaded: 9952 bytes" },
+          { type: "text-delta", text: '{"matched":false,"difference":17}' },
+          { type: "finish" },
+        ]));
+        controller.close();
+      }, 120);
+    },
+  });
+
+  const result = await readCherryStudioJson(
+    new Response(body, { headers: { "content-type": "text/event-stream" } }),
+    (level, message, options) => processEvents.push({ level, message, options }),
+  );
+
+  const thoughtUpdates = processEvents.filter((event) => event.options?.details?.includes("the JPG using mineru"));
+  assert.equal(new Set(thoughtUpdates.map((event) => event.options.id)).size, 1);
+  assert.equal(thoughtUpdates[0].options.expanded, true);
+  assert.equal(thoughtUpdates.at(-1).options.expanded, false);
+  assert.equal(thoughtUpdates.at(-1).options.details, reasoning);
+  assert.equal(processEvents.find((event) => event.message.startsWith("调用工具 Bash")).options.details, JSON.stringify({ command }, null, 2));
+  assert.equal(result.status, "NEEDS_REVIEW");
+  assert.equal(result.summary.differenceAmount, "17.00");
 });

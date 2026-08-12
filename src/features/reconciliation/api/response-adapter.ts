@@ -4,6 +4,7 @@ import type {
   CreateReconciliationTaskInput,
   Money,
   ReconciliationReviewItem,
+  ReconciliationProcessLog,
   ReconciliationStatus,
   ReconciliationTaskDetail,
   ReconciliationTaskSummary,
@@ -293,6 +294,7 @@ type CherryStudioSseEvent = {
 export type ProgressEmitter = (
   level: "info" | "success" | "error",
   message: string,
+  options?: Pick<ReconciliationProcessLog, "id" | "details" | "expanded">,
 ) => void;
 
 function singleLine(value: string, maxLength: number) {
@@ -316,16 +318,41 @@ function toolInputSummary(input: unknown): string {
   return "";
 }
 
-// 把流式事件转成前端可读的过程日志。reasoning 增量做聚合节流，避免刷屏。
+function rawDetail(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value === undefined) return undefined;
+  return JSON.stringify(value, null, 2);
+}
+
+// 同一段 reasoning 只更新一条日志；工具事件仍按时序追加。
 function emitSseProcess(onProgress: ProgressEmitter) {
   let reasoning = "";
-  const MAX_REASONING = 200;
+  let reasoningId: string | undefined;
+  let updateTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const flushReasoning = () => {
-    const text = reasoning.trim();
-    if (!text) return;
-    onProgress("info", `正在思考：${singleLine(text, 160)}`);
+  const emitReasoning = (expanded: boolean) => {
+    if (!reasoning.trim() || !reasoningId) return;
+    onProgress("info", expanded ? "正在思考…" : "思考过程", {
+      id: reasoningId,
+      details: reasoning,
+      expanded,
+    });
+  };
+
+  const scheduleReasoningUpdate = () => {
+    if (updateTimer) return;
+    updateTimer = setTimeout(() => {
+      updateTimer = undefined;
+      emitReasoning(true);
+    }, 100);
+  };
+
+  const finishReasoning = () => {
+    if (updateTimer) clearTimeout(updateTimer);
+    updateTimer = undefined;
+    emitReasoning(false);
     reasoning = "";
+    reasoningId = undefined;
   };
 
   return (event: CherryStudioSseEvent) => {
@@ -334,38 +361,53 @@ function emitSseProcess(onProgress: ProgressEmitter) {
         onProgress("info", "Agent 开始处理…");
         break;
       case "start-step":
-        flushReasoning();
+        finishReasoning();
         onProgress("info", "进入新的处理步骤…");
+        break;
+      case "reasoning-start":
+        finishReasoning();
+        reasoningId = crypto.randomUUID();
         break;
       case "reasoning-delta":
         if (typeof event.text === "string") {
+          reasoningId ??= crypto.randomUUID();
           reasoning += event.text;
-          if (reasoning.length >= MAX_REASONING) flushReasoning();
+          scheduleReasoningUpdate();
         }
         break;
+      case "reasoning-end":
+      case "finish-step":
+        finishReasoning();
+        break;
       case "tool-call": {
-        flushReasoning();
+        finishReasoning();
         const name = event.toolName ?? "工具";
         const detail = toolInputSummary(event.input);
-        onProgress("info", `调用工具 ${name}${detail ? `：${detail}` : ""}`);
+        onProgress("info", `调用工具 ${name}${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.input),
+        });
         break;
       }
       case "tool-result": {
-        flushReasoning();
+        finishReasoning();
         const name = event.toolName ?? "工具";
         const detail = typeof event.output === "string" ? singleLine(event.output, 60) : "";
-        onProgress("success", `${name} 执行完成${detail ? `：${detail}` : ""}`);
+        onProgress("success", `${name} 执行完成${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.output),
+        });
         break;
       }
       case "tool-error": {
-        flushReasoning();
+        finishReasoning();
         const name = event.toolName ?? "工具";
         const detail = typeof event.error === "string" ? singleLine(event.error, 60) : "";
-        onProgress("error", `${name} 执行出错${detail ? `：${detail}` : ""}`);
+        onProgress("error", `${name} 执行出错${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.error),
+        });
         break;
       }
       case "finish":
-        flushReasoning();
+        finishReasoning();
         onProgress("success", "Agent 处理完成，正在整理最终结果…");
         break;
     }
