@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 
-import { databaseUrlWithPassword, ensureAskpassHelper, setEnvValue } from "./start-all.mjs";
-import { protectSecret, unprotectSecret } from "./local-config.mjs";
+import { databaseUrlWithPassword, ensureAskpassHelper, macAskpassSource, setEnvValue } from "./start-all.mjs";
+import { keychainArguments, protectSecret, unprotectSecret } from "./local-config.mjs";
 import { friendlyConnectionError } from "./config-server.mjs";
 import { readFile } from "node:fs/promises";
 
@@ -35,6 +35,26 @@ test("Windows current-user encryption round-trips secrets", { skip: process.plat
   assert.equal(unprotectSecret(encrypted), secret);
 });
 
+test("macOS uses a native askpass script and Keychain arguments without shell interpolation", () => {
+  const password = "a b@c:/%&!\"'";
+  assert.match(macAskpassSource(), /^#!\/bin\/sh/);
+  assert.ok(macAskpassSource().includes('"$BILLCOMPARE_SSH_PASSWORD"'));
+  assert.doesNotMatch(macAskpassSource(), /powershell|\.exe/i);
+  const args = keychainArguments("save", "sshPassword", password);
+  assert.equal(args[args.indexOf("-w") + 1], password);
+  assert.deepEqual(keychainArguments("read", "sshPassword").slice(0, 3), ["find-generic-password", "-a", "sshPassword"]);
+  assert.doesNotMatch(ensureAskpassHelper("darwin"), /\.exe$/i);
+});
+
+test("macOS SSH askpass returns the password verbatim", { skip: process.platform !== "darwin" }, () => {
+  const password = "a b@c:/%&!\"'";
+  const actual = execFileSync(ensureAskpassHelper(), [], {
+    encoding: "utf8",
+    env: { ...process.env, BILLCOMPARE_SSH_PASSWORD: password },
+  });
+  assert.equal(actual, password);
+});
+
 test("connection errors are translated into actionable Chinese messages", () => {
   assert.equal(friendlyConnectionError("database", { code: "P1000", message: "raw prisma error" }), "数据库密码不正确");
   assert.equal(friendlyConnectionError("ssh", new Error("Permission denied")), "SSH 密码不正确");
@@ -47,4 +67,11 @@ test("Windows launcher closes after success and pauses only on failure", async (
   assert.match(launcher, /BILLCOMPARE_NO_PAUSE/);
   assert.match(launcher, /Read-Host 'Press Enter to close'/);
   assert.doesNotMatch(launcher, /Startup completed|Closing this window|首次配置/);
+});
+
+test("macOS launcher delegates to the cross-platform startup script", async () => {
+  const launcher = await readFile(new URL("../一键启动.command", import.meta.url), "utf8");
+  assert.match(launcher, /^#!\/bin\/sh/);
+  assert.match(launcher, /scripts\/start-all\.mjs/);
+  assert.doesNotMatch(launcher, /powershell|\.exe/i);
 });

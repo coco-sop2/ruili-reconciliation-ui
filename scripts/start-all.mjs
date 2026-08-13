@@ -3,12 +3,14 @@
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -26,7 +28,7 @@ const FRONTEND_PORT = 3333;
 const CONFIG_PORT = 3334;
 const NO_BROWSER = process.argv.includes("--no-browser");
 const LOG_DIR = path.join(ROOT, ".runtime", "logs");
-const ASKPASS_PATH = path.join(ROOT, ".runtime", "bin", "billcompare-askpass-v1.exe");
+const ASKPASS_DIR = path.join(ROOT, ".runtime", "bin");
 
 const log = (message) => console.log(`[一键启动] ${message}`);
 
@@ -189,9 +191,19 @@ function spawnBackground(command, args, options, logPath) {
   return child;
 }
 
-function ensureAskpassHelper() {
-  if (existsSync(ASKPASS_PATH)) return ASKPASS_PATH;
-  mkdirSync(path.dirname(ASKPASS_PATH), { recursive: true });
+function ensureAskpassHelper(platform = process.platform) {
+  mkdirSync(ASKPASS_DIR, { recursive: true });
+  if (platform === "darwin") {
+    const helperPath = path.join(ASKPASS_DIR, "billcompare-askpass-v1");
+    writeFileSync(helperPath, macAskpassSource(), { encoding: "utf8", mode: 0o700 });
+    chmodSync(helperPath, 0o700);
+    return helperPath;
+  }
+  if (platform !== "win32") {
+    throw new Error(`暂不支持 ${platform} 的 SSH 密码登录`);
+  }
+  const helperPath = path.join(ASKPASS_DIR, "billcompare-askpass-v1.exe");
+  if (existsSync(helperPath)) return helperPath;
   const source = [
     "using System;",
     "internal static class Program {",
@@ -206,13 +218,17 @@ function ensureAskpassHelper() {
   execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", script], {
     env: {
       ...process.env,
-      BILLCOMPARE_ASKPASS_PATH: ASKPASS_PATH,
+      BILLCOMPARE_ASKPASS_PATH: helperPath,
       BILLCOMPARE_ASKPASS_SOURCE: source,
     },
     stdio: "ignore",
     windowsHide: true,
   });
-  return ASKPASS_PATH;
+  return helperPath;
+}
+
+function macAskpassSource() {
+  return "#!/bin/sh\nexec /usr/bin/printf '%s' \"$BILLCOMPARE_SSH_PASSWORD\"\n";
 }
 
 async function ensureTunnel(settings, sshPassword) {
@@ -399,4 +415,4 @@ if (isMain) {
   });
 }
 
-export { databaseUrlWithPassword, ensureAskpassHelper, loadSettings, setEnvValue };
+export { databaseUrlWithPassword, ensureAskpassHelper, loadSettings, macAskpassSource, setEnvValue };
