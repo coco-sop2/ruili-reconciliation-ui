@@ -314,8 +314,7 @@ async function ensureBackend(settings, runtimeEnv) {
     return false;
   }
 
-  log("生成数据库客户端并应用迁移…");
-  runNpm(["run", "prisma:generate"], SERVER_DIR, runtimeEnv);
+  log("应用数据库迁移…");
   runNpm(["run", "prisma:deploy"], SERVER_DIR, runtimeEnv);
 
   const backendLog = runtimeLog("backend.log");
@@ -388,8 +387,10 @@ function openBrowser() {
 async function main() {
   log("===== 锐力对账系统一键启动 =====");
   assertPrerequisites();
-  ensureDependencies();
   ensureLocalEnvFiles();
+  ensureDependencies();
+  log("生成数据库客户端…");
+  runNpm(["run", "prisma:generate"], SERVER_DIR);
   await ensureConfigServer();
   await ensureFrontend();
   if (!NO_BROWSER) openBrowser();
