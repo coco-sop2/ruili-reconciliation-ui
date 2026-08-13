@@ -46,6 +46,7 @@ test("routes reconciliation through the HTTP backend", async () => {
     promptTemplate,
     cherryStudio,
     schema,
+    startAll,
   ] = await Promise.all([
     source("../src/features/reconciliation/api/index.ts"),
     source("../src/features/reconciliation/api/http-client.ts"),
@@ -59,6 +60,7 @@ test("routes reconciliation through the HTTP backend", async () => {
     source("../src/features/reconciliation/api/prompt.ts"),
     source("../server/src/lib/cherrystudio.ts"),
     source("../server/prisma/schema.prisma"),
+    source("../scripts/start-all.mjs"),
   ]);
 
   assert.match(apiEntry, /VITE_API_BASE_URL/);
@@ -113,4 +115,6 @@ test("routes reconciliation through the HTTP backend", async () => {
   assert.match(schema, /name\s+String\?/);
   assert.match(schema, /model ReconciliationReviewItem/);
   assert.match(schema, /model File/);
+  assert.match(startAll, /npm-cli\.js/);
+  assert.doesNotMatch(startAll, /spawnSync\(npmCommand/);
 });

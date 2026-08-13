@@ -1,28 +1,34 @@
 @echo off
-setlocal
-title 锐力对账系统 一键启动
-cd /d "%~dp0"
-
-echo ============================================
-echo         锐力对账系统 一键启动
-echo ============================================
-echo.
-
-where node >nul 2>nul
-if errorlevel 1 (
-  echo [错误] 未找到 Node.js，请先安装 Node.js 22 或更高版本。
+setlocal EnableExtensions
+title Billcompare Launcher
+cd /d "%~dp0" || (
+  echo [ERROR] Cannot open the project directory.
   pause
   exit /b 1
 )
 
-node scripts\start-all.mjs
+echo ============================================
+echo              Billcompare Launcher
+echo ============================================
+echo.
+
+where node.exe >nul 2>nul
 if errorlevel 1 (
+  echo [ERROR] Node.js was not found. Install Node.js 22.13 or newer.
+  pause
+  exit /b 1
+)
+
+node.exe "%~dp0scripts\start-all.mjs" %*
+set "LAUNCH_EXIT=%ERRORLEVEL%"
+if not "%LAUNCH_EXIT%"=="0" (
   echo.
-  echo [错误] 启动未完成，请根据上方信息处理后重试。
+  echo [ERROR] Startup failed. Review the message and log path above.
   pause
-  exit /b 1
+  exit /b %LAUNCH_EXIT%
 )
 
 echo.
-echo 启动完成，关闭此窗口不会停止后台服务。
+echo Startup completed. Closing this window will not stop the services.
 pause
+exit /b 0

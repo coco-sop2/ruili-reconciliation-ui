@@ -1,22 +1,28 @@
 @echo off
-setlocal
-title 锐力对账系统 首次配置
-cd /d "%~dp0"
-
-where node >nul 2>nul
-if errorlevel 1 (
-  echo [错误] 未找到 Node.js，请先安装 Node.js 22.13 或更高版本。
+setlocal EnableExtensions
+title Billcompare First-time Setup
+cd /d "%~dp0" || (
+  echo [ERROR] Cannot open the project directory.
   pause
   exit /b 1
 )
 
-where ssh >nul 2>nul
+where node.exe >nul 2>nul
 if errorlevel 1 (
-  echo [错误] 未找到 OpenSSH Client，请在 Windows 可选功能中安装 OpenSSH 客户端。
+  echo [ERROR] Node.js was not found. Install Node.js 22.13 or newer.
   pause
   exit /b 1
 )
 
-node scripts\setup.mjs
+where ssh.exe >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Windows OpenSSH Client was not found.
+  pause
+  exit /b 1
+)
+
+node.exe "%~dp0scripts\setup.mjs" %*
+set "SETUP_EXIT=%ERRORLEVEL%"
 echo.
 pause
+exit /b %SETUP_EXIT%

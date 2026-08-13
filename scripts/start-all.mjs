@@ -114,10 +114,18 @@ function ensureConfiguration() {
   return settings;
 }
 
-const npmCommand = () => (process.platform === "win32" ? "npm.cmd" : "npm");
+function npmInvocation(args) {
+  if (process.platform !== "win32") return { command: "npm", args };
+  const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  if (!existsSync(npmCli)) {
+    throw new Error(`未找到 npm CLI：${npmCli}。请重新安装官方 Node.js`);
+  }
+  return { command: process.execPath, args: [npmCli, ...args] };
+}
 
 function runNpm(args, cwd) {
-  execFileSync(npmCommand(), args, { cwd, stdio: "inherit", windowsHide: false });
+  const invocation = npmInvocation(args);
+  execFileSync(invocation.command, invocation.args, { cwd, stdio: "inherit", windowsHide: false });
 }
 
 function ensureDependencies() {
