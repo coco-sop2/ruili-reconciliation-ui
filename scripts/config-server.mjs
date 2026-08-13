@@ -236,6 +236,7 @@ export function friendlyConnectionError(target, error) {
     if (/timed out|refused|No route|Could not resolve/i.test(message)) return "无法连接 SSH 服务器，请检查网络";
     return "SSH 登录失败，请检查密码后重试";
   }
+  if (code === "MODULE_NOT_FOUND" && /\.prisma\/client/.test(message)) return "数据库组件未就绪，请重新启动应用";
   if (code === "P1000" || /Authentication failed/i.test(message)) return "数据库密码不正确";
   if (code === "P1001" || /Can't reach database server/i.test(message)) return "无法连接数据库，请稍后重试";
   if (code === "P1010" || /denied access/i.test(message)) return "数据库账号无权访问 billcompare 数据库";
