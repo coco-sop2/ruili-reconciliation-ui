@@ -4,7 +4,7 @@ const configBaseUrl = "http://127.0.0.1:3334";
 
 type StoredStatus = { cherryApiKey: boolean; sshPassword: boolean; databasePassword: boolean };
 type CheckResult = { status: "ok" | "error" | "skipped"; message: string };
-type Results = { cherry: CheckResult; ssh: CheckResult; database: CheckResult };
+type Results = { cherry: CheckResult; ssh: CheckResult; database: CheckResult; backend: CheckResult };
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${configBaseUrl}${path}`, {
@@ -64,14 +64,16 @@ export function ConnectionSettingsView() {
     setMessage("");
     setMessageKind("");
     try {
-      const data = await request<{ ok: boolean; restarting: boolean; results: Results; stored: StoredStatus }>("/api/config/test-and-save", values);
+      const data = await request<{ ok: boolean; credentialsOk: boolean; results: Results; stored: StoredStatus }>("/api/config/test-and-save", values);
       setResults(data.results);
       setStored(data.stored);
       setMessage(data.ok
-        ? (data.restarting ? "连接正常，已保存；后台正在完成启动。" : "连接正常，已保存；下次启动将使用新配置。")
-        : "未保存本次输入，请修改失败项后重新检测。");
+        ? "连接正常，已保存；业务后端已启动。"
+        : data.credentialsOk
+          ? "连接凭据已验证并保存，但业务后端启动失败，请查看启动日志后重试。"
+          : "未保存本次输入，请修改失败项后重新检测。");
       setMessageKind(data.ok ? "success" : "error");
-      if (data.ok) {
+      if (data.credentialsOk) {
         setCherryApiKey("");
         setSshPassword("");
         setDatabasePassword("");
@@ -114,6 +116,7 @@ export function ConnectionSettingsView() {
             <Result label="CherryStudio" result={results.cherry} />
             <Result label="SSH" result={results.ssh} />
             <Result label="PostgreSQL" result={results.database} />
+            <Result label="业务后端" result={results.backend} />
           </div>
         )}
         {message && <div className={`settings-message settings-message--${messageKind}`} role="status">{message}</div>}

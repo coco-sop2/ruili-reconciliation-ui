@@ -7,6 +7,7 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -146,10 +147,19 @@ function runNpm(args, cwd, env = process.env) {
   execFileSync(invocation.command, invocation.args, { cwd, env, stdio: "inherit", windowsHide: false });
 }
 
+function assertPrivateNodeModules(projectDir) {
+  const modules = path.join(projectDir, "node_modules");
+  if (existsSync(modules) && lstatSync(modules).isSymbolicLink()) {
+    throw new Error(`不允许共享 node_modules：${modules}。请删除该链接后在此目录执行 npm ci`);
+  }
+}
+
 function ensureDependencies() {
+  assertPrivateNodeModules(ROOT);
+  assertPrivateNodeModules(SERVER_DIR);
   const frontendReady = existsSync(path.join(ROOT, "node_modules", "vite", "bin", "vite.js"));
   const backendReady = existsSync(path.join(SERVER_DIR, "node_modules", "tsx", "dist", "cli.mjs"))
-    && existsSync(path.join(SERVER_DIR, "node_modules", "@prisma", "client"));
+    && existsSync(path.join(SERVER_DIR, "node_modules", ".prisma", "client", "default.js"));
 
   if (!frontendReady) {
     log("首次安装前端依赖…");
@@ -314,8 +324,7 @@ async function ensureBackend(settings, runtimeEnv) {
     return false;
   }
 
-  log("生成数据库客户端并应用迁移…");
-  runNpm(["run", "prisma:generate"], SERVER_DIR, runtimeEnv);
+  log("应用数据库迁移…");
   runNpm(["run", "prisma:deploy"], SERVER_DIR, runtimeEnv);
 
   const backendLog = runtimeLog("backend.log");
@@ -388,8 +397,8 @@ function openBrowser() {
 async function main() {
   log("===== 锐力对账系统一键启动 =====");
   assertPrerequisites();
-  ensureDependencies();
   ensureLocalEnvFiles();
+  ensureDependencies();
   await ensureConfigServer();
   await ensureFrontend();
   if (!NO_BROWSER) openBrowser();
@@ -415,4 +424,4 @@ if (isMain) {
   });
 }
 
-export { databaseUrlWithPassword, ensureAskpassHelper, loadSettings, macAskpassSource, setEnvValue };
+export { assertPrivateNodeModules, databaseUrlWithPassword, ensureAskpassHelper, loadSettings, macAskpassSource, setEnvValue };
