@@ -96,6 +96,8 @@ export type ReconciliationProcessLog = {
   timestamp: string;
   level: ReconciliationProcessLogLevel;
   message: string;
+  details?: string;
+  expanded?: boolean;
 };
 
 export type ReconciliationProgressListener = (log: ReconciliationProcessLog) => void;

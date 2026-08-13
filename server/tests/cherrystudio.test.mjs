@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parseAgentResponse,
+  readSseFinalText,
   RECONCILIATION_AGENT_INSTRUCTIONS,
   resolveAgentSession,
 } from "../dist/lib/cherrystudio.js";
@@ -38,6 +39,55 @@ test("accepts a matched result with an empty issues string", () => {
 
   assert.equal(result?.matched, true);
   assert.deepEqual(result?.issues, []);
+});
+
+test("keeps reasoning and tool details in stable process logs", async () => {
+  const encoder = new TextEncoder();
+  const reasoning = "the JPG using mineru.\n扣点 rates for different sales amounts\n17.00";
+  const command = "curl -s -o /tmp/erp.xlsx https://example.test/full-command-that-must-not-be-truncated";
+  const processEvents = [];
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode([
+        { type: "start" },
+        { type: "reasoning-start" },
+        { type: "reasoning-delta", text: reasoning.slice(0, 20) },
+      ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")));
+      setTimeout(() => {
+        controller.enqueue(encoder.encode([
+          { type: "reasoning-delta", text: reasoning.slice(20) },
+          { type: "reasoning-end" },
+          { type: "tool-call", toolName: "Bash", input: { command } },
+          { type: "tool-result", toolName: "Bash", output: "ERP downloaded: 9952 bytes" },
+          { type: "text-delta", text: '{"matched":false}' },
+          { type: "finish" },
+        ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")));
+        controller.close();
+      }, 120);
+    },
+  });
+
+  assert.equal(
+    await readSseFinalText(
+      new Response(body, { headers: { "content-type": "text/event-stream" } }),
+      (level, message, options) => processEvents.push({ level, message, options }),
+    ),
+    '{"matched":false}',
+  );
+
+  const thoughtUpdates = processEvents.filter((event) => event.options?.details?.includes("the JPG using mineru"));
+  assert.equal(new Set(thoughtUpdates.map((event) => event.options.id)).size, 1);
+  assert.equal(thoughtUpdates[0].options.expanded, true);
+  assert.equal(thoughtUpdates.at(-1).options.expanded, false);
+  assert.equal(thoughtUpdates.at(-1).options.details, reasoning);
+  assert.equal(
+    processEvents.find((event) => event.message.startsWith("调用工具 Bash")).options.details,
+    JSON.stringify({ command }, null, 2),
+  );
+  assert.equal(
+    processEvents.find((event) => event.message.startsWith("Bash 执行完成")).options.details,
+    "ERP downloaded: 9952 bytes",
+  );
 });
 
 test("rejects contradictory matched results", () => {

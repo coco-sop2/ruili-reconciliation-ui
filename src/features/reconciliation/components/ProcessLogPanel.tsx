@@ -29,7 +29,7 @@ export function ProcessLogPanel({ logs, running }: ProcessLogPanelProps) {
   useEffect(() => {
     const body = bodyRef.current;
     if (body && !collapsed) body.scrollTop = body.scrollHeight;
-  }, [logs.length, collapsed]);
+  }, [logs, collapsed]);
 
   if (logs.length === 0) return null;
 
@@ -49,7 +49,14 @@ export function ProcessLogPanel({ logs, running }: ProcessLogPanelProps) {
               <span className="process-log__mark" aria-hidden="true">
                 {log.level === "error" ? "✕" : log.level === "success" ? "✓" : "·"}
               </span>
-              <span className="process-log__message">{log.message}</span>
+              {log.details === undefined ? (
+                <span className="process-log__message">{log.message}</span>
+              ) : (
+                <details className="process-log__message" open={log.expanded}>
+                  <summary>{log.message}</summary>
+                  <pre>{log.details}</pre>
+                </details>
+              )}
             </div>
           ))}
         </div>

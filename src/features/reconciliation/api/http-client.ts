@@ -221,7 +221,7 @@ export class HttpReconciliationApi implements ReconciliationApi {
     if (input.agentSelector.workspace) formData.append("agentWorkspace", input.agentSelector.workspace);
 
     input.onProgress?.({
-      id: crypto.randomUUID(),
+      id: `local:${crypto.randomUUID()}`,
       timestamp: new Date().toISOString(),
       level: "info",
       message: "正在上传文件并创建对账任务…",
@@ -248,7 +248,7 @@ export class HttpReconciliationApi implements ReconciliationApi {
     if (!response.ok) {
       const errorPayload = payload as { error?: { code?: string; message?: string; requestId?: string } } | null;
       input.onProgress?.({
-        id: crypto.randomUUID(),
+        id: `local:${crypto.randomUUID()}`,
         timestamp: new Date().toISOString(),
         level: "error",
         message: errorPayload?.error?.message ?? `创建任务失败（HTTP ${response.status}）`,
@@ -272,12 +272,7 @@ export class HttpReconciliationApi implements ReconciliationApi {
 
     const logs = envelope?.data?.logs ?? [];
     for (const log of logs) {
-      input.onProgress?.({
-        id: log.id ?? crypto.randomUUID(),
-        timestamp: log.timestamp ?? new Date().toISOString(),
-        level: log.level,
-        message: log.message,
-      });
+      input.onProgress?.(log);
     }
 
     const taskId = envelope?.data?.taskId;

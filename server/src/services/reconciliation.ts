@@ -19,6 +19,8 @@ export type ProgressLog = {
   timestamp: string;
   level: "info" | "success" | "error";
   message: string;
+  details?: string;
+  expanded?: boolean;
 };
 
 export type CreateReconciliationInput = {
@@ -47,8 +49,16 @@ function emit(
   onProgress: CreateReconciliationInput["onProgress"],
   level: ProgressLog["level"],
   message: string,
+  options?: Partial<Pick<ProgressLog, "id" | "details" | "expanded">>,
 ) {
-  onProgress?.({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), level, message });
+  onProgress?.({
+    id: options?.id ?? crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    level,
+    message,
+    details: options?.details,
+    expanded: options?.expanded,
+  });
 }
 
 function saveTaskFiles(input: CreateReconciliationInput) {
@@ -177,7 +187,7 @@ async function runReconciliation(
     emit(onProgress, "info", "正在连接 CherryStudio Agent…");
     const target = await resolveAgentSession(
       agentSelector,
-      (level, message) => emit(onProgress, level, message),
+      (level, message, options) => emit(onProgress, level, message, options),
       active.controller.signal,
     );
     active.target = target;
@@ -209,7 +219,7 @@ async function runReconciliation(
     const result = await sendReconciliationPrompt(
       target,
       prompt,
-      (level, message) => emit(onProgress, level, message),
+      (level, message, options) => emit(onProgress, level, message, options),
       active.controller.signal,
     );
 

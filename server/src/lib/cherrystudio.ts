@@ -49,6 +49,18 @@ export type AgentSelector = {
   workspace?: string;
 };
 
+export type CherryLogOptions = {
+  id?: string;
+  details?: string;
+  expanded?: boolean;
+};
+
+export type CherryLogEmitter = (
+  level: "info" | "success" | "error",
+  message: string,
+  options?: CherryLogOptions,
+) => void;
+
 export const RECONCILIATION_AGENT_INSTRUCTIONS = `你是锐力对账 Agent。请严格遵守以下对账口径：
 
 1. difference 的唯一计算方式是：ERP/DRP 表单中的销售额合计 - 结算单中的净营业额（或同义的本月结算营业额小计）。
@@ -206,7 +218,7 @@ function extractSession(input: unknown): CherrySession | undefined {
  */
 export async function resolveAgentSession(
   selector: AgentSelector,
-  onLog?: (level: "info" | "success" | "error", message: string) => void,
+  onLog?: CherryLogEmitter,
   signal?: AbortSignal,
 ): Promise<CherryAgentSession> {
   onLog?.("info", "正在查找对账 Agent…");
@@ -256,7 +268,7 @@ export async function resolveAgentSession(
 export async function sendReconciliationPrompt(
   target: CherryAgentSession,
   prompt: string,
-  onLog?: (level: "info" | "success" | "error", message: string) => void,
+  onLog?: CherryLogEmitter,
   signal?: AbortSignal,
 ): Promise<CherryParseResult> {
   onLog?.("info", "正在提交对账请求至 Agent…");
@@ -373,9 +385,19 @@ function toolInputSummary(input: unknown): string {
   return "";
 }
 
-async function readSseFinalText(
+function rawDetail(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+export async function readSseFinalText(
   response: Response,
-  onLog?: (level: "info" | "success" | "error", message: string) => void,
+  onLog?: CherryLogEmitter,
 ): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return "";
@@ -385,11 +407,33 @@ async function readSseFinalText(
   let deltaText = "";
   let finalText = "";
   let reasoningText = "";
+  let reasoningId: string | undefined;
+  let reasoningUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const updateReasoning = (expanded: boolean) => {
+    if (reasoningText.trim() && reasoningId) {
+      onLog?.("info", expanded ? "正在思考…" : "思考过程", {
+        id: reasoningId,
+        details: reasoningText,
+        expanded,
+      });
+    }
+  };
+
+  const scheduleReasoningUpdate = () => {
+    if (reasoningUpdateTimer) return;
+    reasoningUpdateTimer = setTimeout(() => {
+      reasoningUpdateTimer = undefined;
+      updateReasoning(true);
+    }, 100);
+  };
 
   const flushReasoning = () => {
-    const text = reasoningText.trim();
-    if (text) onLog?.("info", `正在思考：${singleLine(text, 180)}`);
+    if (reasoningUpdateTimer) clearTimeout(reasoningUpdateTimer);
+    reasoningUpdateTimer = undefined;
+    updateReasoning(false);
     reasoningText = "";
+    reasoningId = undefined;
   };
 
   const handleEventData = (data: string) => {
@@ -407,30 +451,50 @@ async function readSseFinalText(
       case "start":
         onLog?.("info", "Agent 开始处理…");
         break;
+      case "start-step":
+        flushReasoning();
+        onLog?.("info", "进入新的处理步骤…");
+        break;
+      case "reasoning-start":
+        flushReasoning();
+        reasoningId = crypto.randomUUID();
+        break;
       case "reasoning-delta":
         if (typeof event.text === "string") {
+          reasoningId ??= crypto.randomUUID();
           reasoningText += event.text;
-          if (reasoningText.length >= 240) flushReasoning();
+          scheduleReasoningUpdate();
         }
+        break;
+      case "reasoning-end":
+      case "finish-step":
+        flushReasoning();
         break;
       case "tool-call": {
         flushReasoning();
         const name = event.toolName ?? "工具";
         const detail = toolInputSummary(event.input);
-        onLog?.("info", `调用工具 ${name}${detail ? `：${detail}` : ""}`);
+        onLog?.("info", `调用工具 ${name}${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.input),
+        });
         break;
       }
       case "tool-result": {
         flushReasoning();
         const name = event.toolName ?? "工具";
         const detail = typeof event.output === "string" ? singleLine(event.output, 60) : "";
-        onLog?.("success", `${name} 执行完成${detail ? `：${detail}` : ""}`);
+        onLog?.("success", `${name} 执行完成${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.output),
+        });
         break;
       }
       case "tool-error": {
         flushReasoning();
         const name = event.toolName ?? "工具";
-        onLog?.("error", `${name} 执行出错`);
+        const detail = typeof event.error === "string" ? singleLine(event.error, 60) : "";
+        onLog?.("error", `${name} 执行出错${detail ? `：${detail}` : ""}`, {
+          details: rawDetail(event.error),
+        });
         break;
       }
       case "finish":

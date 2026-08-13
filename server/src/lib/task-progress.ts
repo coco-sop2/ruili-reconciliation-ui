@@ -3,6 +3,8 @@ export type TaskProgressLog = {
   timestamp: string;
   level: "info" | "success" | "error";
   message: string;
+  details?: string;
+  expanded?: boolean;
 };
 
 type ProgressEntry = {
@@ -32,7 +34,12 @@ export function initializeTaskProgress(taskId: string, logs: TaskProgressLog[]) 
 export function appendTaskProgress(taskId: string, log: TaskProgressLog) {
   removeExpiredEntries();
   const entry = progressByTask.get(taskId) ?? { logs: [], touchedAt: Date.now() };
-  entry.logs.push(log);
+  const existingIndex = entry.logs.findIndex((item) => item.id === log.id);
+  if (existingIndex >= 0) {
+    entry.logs[existingIndex] = { ...log, timestamp: entry.logs[existingIndex].timestamp };
+  } else {
+    entry.logs.push(log);
+  }
   if (entry.logs.length > maxLogsPerTask) {
     entry.logs.splice(0, entry.logs.length - maxLogsPerTask);
   }

@@ -38,6 +38,8 @@ test("routes reconciliation through the HTTP backend", async () => {
     httpClient,
     taskProvider,
     startView,
+    processLogPanel,
+    modelTypes,
     reviewHook,
     overview,
     serverTasks,
@@ -46,6 +48,8 @@ test("routes reconciliation through the HTTP backend", async () => {
     reconciliationService,
     promptTemplate,
     cherryStudio,
+    taskProgress,
+    agentOutputContract,
     schema,
     startAll,
   ] = await Promise.all([
@@ -53,6 +57,8 @@ test("routes reconciliation through the HTTP backend", async () => {
     source("../src/features/reconciliation/api/http-client.ts"),
     source("../src/features/reconciliation/hooks/ReconciliationTaskProvider.tsx"),
     source("../src/features/reconciliation/components/StartView.tsx"),
+    source("../src/features/reconciliation/components/ProcessLogPanel.tsx"),
+    source("../src/features/reconciliation/model/types.ts"),
     source("../src/features/reconciliation/hooks/use-review-items.ts"),
     source("../src/features/reconciliation/components/OverviewView.tsx"),
     source("../server/src/routes/tasks.ts"),
@@ -61,6 +67,8 @@ test("routes reconciliation through the HTTP backend", async () => {
     source("../server/src/services/reconciliation.ts"),
     source("../src/features/reconciliation/api/prompt.ts"),
     source("../server/src/lib/cherrystudio.ts"),
+    source("../server/src/lib/task-progress.ts"),
+    source("../docs/agent-output-contract.md"),
     source("../server/prisma/schema.prisma"),
     source("../scripts/start-all.mjs"),
   ]);
@@ -77,6 +85,15 @@ test("routes reconciliation through the HTTP backend", async () => {
   assert.match(httpClient, /method: "DELETE"/);
   assert.match(taskProvider, /progressLogs/);
   assert.match(taskProvider, /pollIntervalMs/);
+  assert.match(taskProvider, /`local:\$\{\+\+logIdRef\.current\}`/);
+  assert.match(taskProvider, /findIndex\(\(item\) => item\.id === log\.id\)/);
+  assert.doesNotMatch(taskProvider, /seenServerLogIds|seenIds\.has/);
+  assert.match(processLogPanel, /<details className="process-log__message" open=\{log\.expanded\}>/);
+  assert.match(processLogPanel, /<pre>\{log\.details\}<\/pre>/);
+  assert.match(processLogPanel, /\[logs, collapsed\]/);
+  assert.match(modelTypes, /details\?: string/);
+  assert.match(modelTypes, /expanded\?: boolean/);
+  assert.doesNotMatch(modelTypes, /apiKey: string/);
   assert.match(reviewHook, /reconciliationApi\.updateReviewItem/);
   assert.match(reviewHook, /\["NEEDS_REVIEW", "REVIEWED"\]/);
   assert.match(overview, /window\.confirm/);
@@ -103,6 +120,13 @@ test("routes reconciliation through the HTTP backend", async () => {
   assert.match(cherryStudio, /AbortSignal\.timeout/);
   assert.match(cherryStudio, /normalizeDifferenceDirection/);
   assert.match(cherryStudio, /extractTaskName/);
+  assert.match(cherryStudio, /reasoningId \?\?= crypto\.randomUUID\(\)/);
+  assert.match(cherryStudio, /details: rawDetail\(event\.input\)/);
+  assert.match(cherryStudio, /details: rawDetail\(event\.output\)/);
+  assert.match(taskProgress, /findIndex\(\(item\) => item\.id === log\.id\)/);
+  assert.match(taskProgress, /maxLogsPerTask = 300/);
+  assert.match(agentOutputContract, /必须且只能包含以下五个字段/);
+  assert.match(agentOutputContract, /不接受 `issues` 数组/);
   assert.match(reconciliationService, /ERP 金额 - 结算单金额/);
   assert.match(reconciliationService, /drp表单中的商城名称/);
   assert.match(reconciliationService, /SELECT 1 AS acquired\s+FROM pg_advisory_xact_lock/);

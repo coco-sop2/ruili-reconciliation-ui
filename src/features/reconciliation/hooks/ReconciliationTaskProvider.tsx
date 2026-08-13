@@ -47,7 +47,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
   const [restoredTaskId] = useState(() => window.localStorage.getItem(activeTaskStorageKey));
   const [running, setRunning] = useState(() => Boolean(restoredTaskId));
   const [logs, setLogs] = useState<ReconciliationProcessLog[]>(() => restoredTaskId ? [{
-    id: "1",
+    id: "local:1",
     timestamp: new Date().toISOString(),
     level: "info",
     message: `正在恢复任务 ${restoredTaskId} 的处理进度…`,
@@ -57,7 +57,6 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
   const [stopping, setStopping] = useState(false);
   const logIdRef = useRef(restoredTaskId ? 1 : 0);
   const activeTaskIdRef = useRef<string | null>(restoredTaskId);
-  const seenServerLogIds = useRef(new Set<string>());
   const restoreStartedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
@@ -66,7 +65,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
 
   const appendLog = useCallback((level: ReconciliationProcessLog["level"], message: string) => {
     const log: ReconciliationProcessLog = {
-      id: String(++logIdRef.current),
+      id: `local:${++logIdRef.current}`,
       timestamp: new Date().toISOString(),
       level,
       message,
@@ -74,18 +73,31 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     setLogs((prev) => [...prev, log]);
   }, []);
 
+  const upsertServerLogs = useCallback((serverLogs: ReconciliationProcessLog[] | undefined) => {
+    if (!serverLogs?.length) return;
+    setLogs((previous) => {
+      const next = [...previous];
+      for (const log of serverLogs) {
+        const index = next.findIndex((item) => item.id === log.id);
+        if (index >= 0) next[index] = { ...log, timestamp: next[index].timestamp };
+        else next.push(log);
+      }
+      return next;
+    });
+  }, []);
+
   const monitorTask = useCallback(async (taskId: string) => {
     const deadline = Date.now() + pollTimeoutMs;
     let current = await getTaskWithRetry(taskId, deadline, appendLog);
 
     while (current.status === "QUEUED" || current.status === "PROCESSING") {
-      appendServerLogs(current.progressLogs, seenServerLogIds.current, appendLog);
+      upsertServerLogs(current.progressLogs);
       if (Date.now() >= deadline) throw new Error("对账处理超时，请在总览中查看任务状态");
       await wait(pollIntervalMs);
       current = await getTaskWithRetry(taskId, deadline, appendLog);
     }
 
-    appendServerLogs(current.progressLogs, seenServerLogIds.current, appendLog);
+    upsertServerLogs(current.progressLogs);
     const ownsTask = activeTaskIdRef.current === taskId;
     if (ownsTask) {
       activeTaskIdRef.current = null;
@@ -103,7 +115,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
       setRunning(false);
       onCompleteRef.current(current);
     }
-  }, [appendLog]);
+  }, [appendLog, upsertServerLogs]);
 
   useEffect(() => {
     if (!restoredTaskId || restoreStartedRef.current) return;
@@ -137,7 +149,6 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
     setError("");
     setLogs([]);
     logIdRef.current = 0;
-    seenServerLogIds.current.clear();
     appendLog("info", "点击「开始对账」，任务已提交");
     try {
       const task = await reconciliationApi.createTask({
@@ -147,10 +158,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
           name: agentName,
           workspace: input.agentWorkspace.trim() || undefined,
         },
-        onProgress: (log) => {
-          seenServerLogIds.current.add(log.id);
-          appendLog(log.level, log.message);
-        },
+        onProgress: (log) => upsertServerLogs([log]),
       });
       activeTaskIdRef.current = task.id;
       setActiveTaskId(task.id);
@@ -165,7 +173,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
       setError(message);
       setRunning(false);
     }
-  }, [running, appendLog, monitorTask]);
+  }, [running, appendLog, monitorTask, upsertServerLogs]);
 
   const stopReconciliation = useCallback(async () => {
     const taskId = activeTaskId ?? window.localStorage.getItem(activeTaskStorageKey);
@@ -202,18 +210,6 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
       {children}
     </ReconciliationTaskContext.Provider>
   );
-}
-
-function appendServerLogs(
-  logs: ReconciliationProcessLog[] | undefined,
-  seenIds: Set<string>,
-  appendLog: (level: ReconciliationProcessLog["level"], message: string) => void,
-) {
-  for (const log of logs ?? []) {
-    if (seenIds.has(log.id)) continue;
-    seenIds.add(log.id);
-    appendLog(log.level, log.message);
-  }
 }
 
 async function getTaskWithRetry(
