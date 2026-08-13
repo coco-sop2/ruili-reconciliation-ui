@@ -57,8 +57,20 @@ test("macOS SSH askpass returns the password verbatim", { skip: process.platform
 
 test("connection errors are translated into actionable Chinese messages", () => {
   assert.equal(friendlyConnectionError("database", { code: "P1000", message: "raw prisma error" }), "数据库密码不正确");
+  const missingClient = Object.assign(new Error("Cannot find module '.prisma/client/default'"), { code: "MODULE_NOT_FOUND" });
+  assert.equal(
+    friendlyConnectionError("database", missingClient),
+    "数据库组件未就绪，请重新启动应用",
+  );
   assert.equal(friendlyConnectionError("ssh", new Error("Permission denied")), "SSH 密码不正确");
   assert.equal(friendlyConnectionError("cherry", new Error("HTTP 401")), "API Key 不正确或已失效");
+});
+
+test("launcher generates Prisma Client before starting the configuration server", async () => {
+  const launcher = await readFile(new URL("./start-all.mjs", import.meta.url), "utf8");
+  const generateClient = launcher.indexOf('runNpm(["run", "prisma:generate"], SERVER_DIR);');
+  const startConfigurationServer = launcher.indexOf("await ensureConfigServer();");
+  assert.ok(generateClient >= 0 && generateClient < startConfigurationServer);
 });
 
 test("Windows launcher closes after success and pauses only on failure", async () => {
