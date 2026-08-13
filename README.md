@@ -8,17 +8,17 @@
 
 接收人的电脑需要：
 
-- Windows 10/11，Node.js 22.13 或更高版本。
-- Windows OpenSSH Client（系统“可选功能”里的 OpenSSH 客户端）。
+- Windows 10/11 或 macOS，Node.js 22.13 或更高版本。
+- SSH 客户端（Windows 在系统“可选功能”中安装 OpenSSH Client；macOS 已内置）。
 - CherryStudio 企业版已启动，API 服务监听 `127.0.0.1:24333`，并已创建名为“锐力”的对账 Agent。
 
-右键 `一键启动.ps1` 选择“使用 PowerShell 运行”。浏览器会自动打开，启动窗口随后自动关闭；前后端仍在后台运行。首次使用时在左侧“连接设置”填写：
+Windows 右键 `一键启动.ps1` 选择“使用 PowerShell 运行”。macOS 首次运行先在终端执行 `chmod +x 一键启动.command`，以后双击该文件即可；如果系统拦截，右键文件选择“打开”。浏览器会自动打开。首次使用时在左侧“连接设置”填写：
 
 1. CherryStudio API Key。
 2. SSH 密码。
 3. PostgreSQL 数据库密码。
 
-点击“检测并保存”后，凭据由 Windows 当前用户加密保存在本机 `.runtime/config/credentials.json`，页面不会回显明文；后续启动会自动读取并检测。连接设置页始终保留，但不会修改服务器账号或密码。
+点击“检测并保存”后，Windows 使用当前用户 DPAPI 加密保存，macOS 使用当前用户钥匙串保存；页面不会回显明文，后续启动会自动读取并检测。连接设置页始终保留，但不会修改服务器账号或密码。
 
 其余步骤全部自动完成：
 

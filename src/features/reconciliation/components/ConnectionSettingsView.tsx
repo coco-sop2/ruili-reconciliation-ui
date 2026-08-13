@@ -24,6 +24,7 @@ const emptyStored: StoredStatus = { cherryApiKey: false, sshPassword: false, dat
 
 export function ConnectionSettingsView() {
   const [stored, setStored] = useState<StoredStatus>(emptyStored);
+  const [secureStorage, setSecureStorage] = useState("系统安全存储");
   const [cherryApiKey, setCherryApiKey] = useState("");
   const [sshPassword, setSshPassword] = useState("");
   const [databasePassword, setDatabasePassword] = useState("");
@@ -34,8 +35,11 @@ export function ConnectionSettingsView() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    void request<{ stored: StoredStatus }>("/api/config")
-      .then((data) => setStored(data.stored))
+    void request<{ stored: StoredStatus; secureStorage: string }>("/api/config")
+      .then((data) => {
+        setStored(data.stored);
+        setSecureStorage(data.secureStorage);
+      })
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : "无法读取本机配置");
         setMessageKind("error");
@@ -88,7 +92,7 @@ export function ConnectionSettingsView() {
           <h1>连接设置</h1>
           <p>首次使用请填写全部三项。以后留空表示沿用本机已有值，只有全部检测通过才会保存。</p>
         </div>
-        <div className="security-note"><span>⌁</span><div><strong>Windows 当前用户加密</strong><small>配置服务仅监听 127.0.0.1</small></div></div>
+        <div className="security-note"><span>⌁</span><div><strong>{secureStorage}</strong><small>配置服务仅监听 127.0.0.1</small></div></div>
       </header>
 
       <section className="settings-card">

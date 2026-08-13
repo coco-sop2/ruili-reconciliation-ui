@@ -252,6 +252,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, {
         data: {
           stored: credentialStatus(),
+          secureStorage: process.platform === "darwin" ? "macOS 钥匙串" : "Windows DPAPI",
           connection: {
             sshHost: settings.sshHost,
             sshPort: settings.sshPort,
