@@ -57,13 +57,12 @@ billcompare/
 
 ## 手动启动
 
-需要排查时也可以分别启动：
+每个项目副本必须使用自己的 `node_modules`，不要用 Junction 或软链接共享依赖。需要排查时也可以分别启动；`npm ci` 会自动生成 Prisma Client：
 
 ```powershell
-npm install
+npm ci
 cd server
-npm install
-npm run prisma:generate
+npm ci
 npm run prisma:deploy
 npm run dev
 ```

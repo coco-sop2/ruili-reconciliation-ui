@@ -13,6 +13,16 @@ const PORT = 3334;
 const ALLOWED_ORIGINS = new Set(["http://127.0.0.1:3333", "http://localhost:3333"]);
 const START_ALL = path.join(ROOT, "scripts", "start-all.mjs");
 const LOG_DIR = path.join(ROOT, ".runtime", "logs");
+const PRISMA_CLIENT_URL = pathToFileURL(path.join(ROOT, "server", "node_modules", "@prisma", "client", "default.js")).href;
+const DATABASE_PROBE_SOURCE = `
+const { PrismaClient } = await import(process.env.BILLCOMPARE_PRISMA_CLIENT_URL);
+const client = new PrismaClient({ datasources: { db: { url: process.env.BILLCOMPARE_DATABASE_URL } } });
+try {
+  await client.$queryRawUnsafe("SELECT 1");
+} finally {
+  await client.$disconnect();
+}
+`;
 
 const responseHeaders = (origin) => ({
   "Content-Type": "application/json; charset=utf-8",
@@ -101,6 +111,26 @@ const freePort = () => new Promise((resolve, reject) => {
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+export async function backendHealthy(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    const payload = await response.json();
+    return response.ok && payload?.data?.service === "billcompare" && payload.data.database === "ok";
+  } catch {
+    return false;
+  }
+}
+
+async function waitForBackend(port) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (await backendHealthy(port)) return true;
+    await delay(1_000);
+  }
+  return false;
+}
+
 async function openTestTunnel(settings, password) {
   const localPort = await freePort();
   const child = spawn("ssh", [
@@ -165,16 +195,32 @@ async function testDatabase(databasePassword, sshPassword, settings) {
     url.hostname = "127.0.0.1";
     url.port = String(tunnel.localPort);
     url.password = encodeURIComponent(databasePassword);
-    const prismaModule = await import(pathToFileURL(path.join(ROOT, "server", "node_modules", "@prisma", "client", "default.js")).href);
-    const client = new prismaModule.PrismaClient({ datasources: { db: { url: url.toString() } } });
-    try {
-      await client.$queryRawUnsafe("SELECT 1");
-    } finally {
-      await client.$disconnect();
-    }
+    await runDatabaseProbe(url.toString());
   } finally {
     tunnel.child?.kill();
   }
+}
+
+export function runDatabaseProbe(databaseUrl, prismaClientUrl = PRISMA_CLIENT_URL) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", DATABASE_PROBE_SOURCE], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        BILLCOMPARE_DATABASE_URL: databaseUrl,
+        BILLCOMPARE_PRISMA_CLIENT_URL: prismaClientUrl,
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
+    });
+    let errorText = "";
+    child.stderr.on("data", (chunk) => { errorText += String(chunk).slice(0, 4000); });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(errorText || "数据库连接测试失败"));
+    });
+  });
 }
 
 export function friendlyConnectionError(target, error) {
@@ -266,13 +312,29 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/api/config/test-and-save") {
       const checked = await testAll(await readBody(req));
       let restarting = false;
+      let backend = { status: "skipped", message: "连接凭据通过后再启动业务后端" };
+      let ok = false;
       if (checked.ok) {
         saveCredentials(checked.credentials);
-        restarting = !(await portOpen(loadSettings().backendPort));
-        if (restarting) resumeStartup();
+        const { backendPort } = loadSettings();
+        ok = await backendHealthy(backendPort);
+        if (!ok) {
+          restarting = true;
+          resumeStartup();
+          ok = await waitForBackend(backendPort);
+        }
+        backend = ok
+          ? { status: "ok", message: "业务后端已启动并通过健康检查" }
+          : { status: "error", message: `业务后端启动失败，请查看 ${path.join(LOG_DIR, "resume-startup.log")}` };
       }
-      return send(res, checked.ok ? 200 : 422, {
-        data: { ok: checked.ok, restarting, results: checked.results, stored: credentialStatus() },
+      return send(res, ok ? 200 : checked.ok ? 503 : 422, {
+        data: {
+          ok,
+          credentialsOk: checked.ok,
+          restarting,
+          results: { ...checked.results, backend },
+          stored: credentialStatus(),
+        },
       }, origin);
     }
     return send(res, 404, { error: "接口不存在" }, origin);
