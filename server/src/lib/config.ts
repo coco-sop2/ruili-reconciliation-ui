@@ -1,9 +1,12 @@
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 // 读取 .env 文件（简单实现，不引入 dotenv 依赖，Prisma 已加载 DATABASE_URL）
 function loadEnvFile() {
-  const envPath = path.resolve(process.cwd(), ".env");
+  const envPath = path.join(SERVER_ROOT, ".env");
   if (!fs.existsSync(envPath)) return;
   const content = fs.readFileSync(envPath, "utf-8");
   for (const line of content.split("\n")) {
@@ -34,7 +37,8 @@ export const config = {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
-  uploadDir: process.env.UPLOAD_DIR || "./data/files",
+  uploadDir: process.env.UPLOAD_DIR || "../.runtime/data/uploads",
+  taskWorkDir: process.env.TASK_WORK_DIR || "../.runtime/tasks",
   cherryStudio: {
     baseUrl: (process.env.CHERRYSTUDIO_BASE_URL || "http://127.0.0.1:24333").replace(/\/$/, ""),
     apiKey: process.env.CHERRYSTUDIO_API_KEY || "",
@@ -47,5 +51,9 @@ export const config = {
 };
 
 export function resolveUploadDir() {
-  return path.resolve(process.cwd(), config.uploadDir);
+  return path.resolve(SERVER_ROOT, config.uploadDir);
+}
+
+export function resolveTaskWorkRoot() {
+  return path.resolve(SERVER_ROOT, config.taskWorkDir);
 }

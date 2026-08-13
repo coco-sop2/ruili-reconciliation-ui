@@ -56,9 +56,22 @@ tasksRouter.post("/", upload.fields([
       });
     }
 
+    const agentName = typeof req.body?.agentName === "string" ? req.body.agentName.trim() : "";
+    if (!agentName) {
+      return res.status(400).json({
+        error: {
+          code: "AGENT_NAME_REQUIRED",
+          message: "agentName 为必填字段",
+          requestId: crypto.randomUUID(),
+        },
+      });
+    }
+
     const agentSelector = {
-      name: (req.body?.agentName as string) || undefined,
-      workspace: (req.body?.agentWorkspace as string) || undefined,
+      name: agentName,
+      workspace: typeof req.body?.agentWorkspace === "string"
+        ? req.body.agentWorkspace.trim() || undefined
+        : undefined,
     };
 
     const logs: ProgressLog[] = [];

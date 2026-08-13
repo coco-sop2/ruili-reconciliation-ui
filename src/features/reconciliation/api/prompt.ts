@@ -15,6 +15,11 @@ export type ReconciliationPromptPayload = {
     settlementFile: ReturnType<typeof getReconciliationFileMetadata> & { url: string };
     erpFile: ReturnType<typeof getReconciliationFileMetadata> & { url: string };
   };
+  runtime?: {
+    taskWorkDir: string;
+    settlementFilePath: string;
+    erpFilePath: string;
+  };
 };
 
 export function createReconciliationPromptPayload(
@@ -42,6 +47,11 @@ export function createReconciliationPromptPayload(
 export function buildReconciliationPrompt(payload: ReconciliationPromptPayload): string {
   const erpUrl = payload.files.erpFile.url;
   const settlementUrl = payload.files.settlementFile.url;
+  const params = payload.runtime ?? {
+    taskWorkDir: ".runtime/tasks/current",
+    settlementFilePath: settlementUrl,
+    erpFilePath: erpUrl,
+  };
 
   return `我有一个对账任务：
 
@@ -50,6 +60,13 @@ ${erpUrl}
 
 ${settlementUrl}
 这是结算单
+
+本次任务唯一允许使用的临时工作目录：
+${params.taskWorkDir}
+
+如需下载文件、拆分 PDF、渲染图片、执行 OCR 或生成 Markdown/JSON，请只写入上述目录。不要在项目根目录、源码目录或输入文件旁创建文件；不要复制原始文件，优先直接读取以下本地路径：
+- ERP：${params.erpFilePath}
+- 结算单：${params.settlementFilePath}
 
 在过程中，面对图片、PDF 等文件，你可以使用 mineru 这个项目 Subagent 获取 Markdown 格式的内容。
 

@@ -104,7 +104,7 @@ export type CreateReconciliationTaskInput = {
   settlementFile: File;
   erpFile: File;
   agentSelector: {
-    name?: string;
+    name: string;
     workspace?: string;
   };
   onProgress?: ReconciliationProgressListener;

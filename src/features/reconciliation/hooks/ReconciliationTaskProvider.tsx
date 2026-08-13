@@ -127,6 +127,11 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
       setError(validationError);
       return;
     }
+    const agentName = input.agentName.trim();
+    if (!agentName) {
+      setError("请填写 Agent 名称");
+      return;
+    }
 
     setRunning(true);
     setError("");
@@ -139,7 +144,7 @@ export function ReconciliationTaskProvider({ onComplete, children }: Reconciliat
         settlementFile: input.settlementFile,
         erpFile: input.erpFile,
         agentSelector: {
-          name: input.agentName.trim() || undefined,
+          name: agentName,
           workspace: input.agentWorkspace.trim() || undefined,
         },
         onProgress: (log) => {

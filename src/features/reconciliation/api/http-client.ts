@@ -18,6 +18,10 @@ type HttpConfig = {
   baseUrl: string;
 };
 
+const startupRetryDelaysMs = [250, 500, 1_000, 1_500, 2_000];
+
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const money = (value: string | number | null | undefined): Money | null => {
   if (value === null || value === undefined || value === "") return null;
   return { currency: "CNY", value: String(value) };
@@ -158,20 +162,30 @@ export class HttpReconciliationApi implements ReconciliationApi {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}${path}`, {
-        ...init,
-        headers: {
-          Accept: "application/json",
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
-          ...(init?.headers ?? {}),
-        },
-      });
-    } catch {
-      throw new ReconciliationApiError("暂时无法连接对账后端", "NETWORK_ERROR");
+    const method = (init?.method ?? "GET").toUpperCase();
+    const retryDelays = method === "GET" ? startupRetryDelaysMs : [];
+    let response: Response | undefined;
+
+    for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+      try {
+        response = await fetch(`${this.baseUrl}${path}`, {
+          ...init,
+          headers: {
+            Accept: "application/json",
+            ...(init?.body ? { "Content-Type": "application/json" } : {}),
+            ...(init?.headers ?? {}),
+          },
+        });
+        break;
+      } catch {
+        if (attempt >= retryDelays.length) {
+          throw new ReconciliationApiError("暂时无法连接对账后端", "NETWORK_ERROR");
+        }
+        await wait(retryDelays[attempt]);
+      }
     }
 
+    if (!response) throw new ReconciliationApiError("暂时无法连接对账后端", "NETWORK_ERROR");
     const text = await response.text();
     let payload: unknown = null;
     try {
@@ -195,10 +209,15 @@ export class HttpReconciliationApi implements ReconciliationApi {
   }
 
   async createTask(input: CreateReconciliationTaskInput): Promise<ReconciliationTaskSummary> {
+    const agentName = input.agentSelector.name.trim();
+    if (!agentName) {
+      throw new ReconciliationApiError("请填写 Agent 名称", "AGENT_NAME_REQUIRED", undefined, 400);
+    }
+
     const formData = new FormData();
     formData.append("settlementFile", input.settlementFile);
     formData.append("erpFile", input.erpFile);
-    if (input.agentSelector.name) formData.append("agentName", input.agentSelector.name);
+    formData.append("agentName", agentName);
     if (input.agentSelector.workspace) formData.append("agentWorkspace", input.agentSelector.workspace);
 
     input.onProgress?.({

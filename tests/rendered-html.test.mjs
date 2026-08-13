@@ -37,6 +37,7 @@ test("routes reconciliation through the HTTP backend", async () => {
     apiEntry,
     httpClient,
     taskProvider,
+    startView,
     reviewHook,
     overview,
     serverTasks,
@@ -51,6 +52,7 @@ test("routes reconciliation through the HTTP backend", async () => {
     source("../src/features/reconciliation/api/index.ts"),
     source("../src/features/reconciliation/api/http-client.ts"),
     source("../src/features/reconciliation/hooks/ReconciliationTaskProvider.tsx"),
+    source("../src/features/reconciliation/components/StartView.tsx"),
     source("../src/features/reconciliation/hooks/use-review-items.ts"),
     source("../src/features/reconciliation/components/OverviewView.tsx"),
     source("../server/src/routes/tasks.ts"),
@@ -117,4 +119,11 @@ test("routes reconciliation through the HTTP backend", async () => {
   assert.match(schema, /model File/);
   assert.match(startAll, /npm-cli\.js/);
   assert.doesNotMatch(startAll, /spawnSync\(npmCommand/);
+  assert.match(startAll, /\[viteCli, "preview"/);
+  assert.match(httpClient, /startupRetryDelaysMs/);
+  assert.match(serverTasks, /AGENT_NAME_REQUIRED/);
+  assert.match(serverTasks, /agentName 为必填字段/);
+  assert.match(httpClient, /formData\.append\("agentName", agentName\)/);
+  assert.match(startView, /Agent 名称（必填）/);
+  assert.match(startView, /required/);
 });

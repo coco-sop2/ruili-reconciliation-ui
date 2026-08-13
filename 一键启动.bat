@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Billcompare Launcher
 cd /d "%~dp0" || (
   echo [ERROR] Cannot open the project directory.
-  pause
+  if not defined BILLCOMPARE_NO_PAUSE pause
   exit /b 1
 )
 
@@ -15,7 +15,7 @@ echo.
 where node.exe >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Node.js was not found. Install Node.js 22.13 or newer.
-  pause
+  if not defined BILLCOMPARE_NO_PAUSE pause
   exit /b 1
 )
 
@@ -24,11 +24,11 @@ set "LAUNCH_EXIT=%ERRORLEVEL%"
 if not "%LAUNCH_EXIT%"=="0" (
   echo.
   echo [ERROR] Startup failed. Review the message and log path above.
-  pause
+  if not defined BILLCOMPARE_NO_PAUSE pause
   exit /b %LAUNCH_EXIT%
 )
 
 echo.
 echo Startup completed. Closing this window will not stop the services.
-pause
+if not defined BILLCOMPARE_NO_PAUSE pause
 exit /b 0

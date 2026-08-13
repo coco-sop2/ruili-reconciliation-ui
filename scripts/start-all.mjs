@@ -15,7 +15,7 @@ const SERVER_ENV_PATH = path.join(SERVER_DIR, ".env");
 const SETUP_SCRIPT = path.join(ROOT, "scripts", "setup.mjs");
 const FRONTEND_PORT = 3333;
 const NO_BROWSER = process.argv.includes("--no-browser");
-const LOG_DIR = path.join(ROOT, ".runtime");
+const LOG_DIR = path.join(ROOT, ".runtime", "logs");
 
 const log = (message) => console.log(`[一键启动] ${message}`);
 
@@ -268,10 +268,13 @@ async function ensureFrontend() {
     throw new Error(`${FRONTEND_PORT} 端口已被其他程序占用`);
   }
 
+  log("构建前端静态资源…");
+  runNpm(["run", "build"], ROOT);
+
   const frontendLog = runtimeLog("frontend.log");
   log(`启动前端（日志：${frontendLog}）…`);
   const viteCli = path.join(ROOT, "node_modules", "vite", "bin", "vite.js");
-  spawnBackground(process.execPath, [viteCli, "--host", "127.0.0.1", "--port", String(FRONTEND_PORT)], {
+  spawnBackground(process.execPath, [viteCli, "preview", "--host", "127.0.0.1", "--port", String(FRONTEND_PORT)], {
     cwd: ROOT,
     env: { ...process.env },
   }, frontendLog);

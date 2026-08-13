@@ -12,6 +12,7 @@ import {
   type CherryParseResult,
 } from "../lib/cherrystudio.js";
 import { config } from "../lib/config.js";
+import { cleanupTaskWorkDir, prepareTaskWorkDir } from "../lib/runtime-storage.js";
 
 export type ProgressLog = {
   id: string;
@@ -31,7 +32,7 @@ export type CreateReconciliationInput = {
     originalName: string;
     contentType: string;
   };
-  agentSelector: AgentSelector;
+  agentSelector: AgentSelector & { name: string };
   onProgress?: (log: ProgressLog) => void;
 };
 
@@ -158,8 +159,10 @@ async function runReconciliation(
 ) {
   const active: ActiveReconciliation = { controller: new AbortController() };
   activeReconciliations.set(taskId, active);
+  let taskWorkDir = "";
 
   try {
+    taskWorkDir = prepareTaskWorkDir(taskId);
     const started = await prisma.reconciliationTask.updateMany({
       where: { id: taskId, status: { in: [TaskStatus.PROCESSING, TaskStatus.QUEUED] } },
       data: {
@@ -199,6 +202,7 @@ async function runReconciliation(
       erpFilePath,
       submittedAt: new Date().toISOString(),
       taskId,
+      taskWorkDir,
     });
 
     emit(onProgress, "info", "提示词已生成，正在提交至 Agent…");
@@ -230,6 +234,11 @@ async function runReconciliation(
       // 忽略回写失败
     }
   } finally {
+    try {
+      cleanupTaskWorkDir(taskId);
+    } catch (error) {
+      console.error(`[cleanup] 清理任务临时目录 ${taskId} 失败`, error);
+    }
     if (activeReconciliations.get(taskId) === active) activeReconciliations.delete(taskId);
   }
 }
@@ -470,6 +479,7 @@ export function buildReconciliationPrompt(params: {
   erpFilePath: string;
   submittedAt: string;
   taskId: string;
+  taskWorkDir: string;
 }) {
   const erpUrl = params.erpFileUrl;
   const settlementUrl = params.settlementFileUrl;
@@ -481,6 +491,13 @@ ${erpUrl}
 
 ${settlementUrl}
 这是结算单
+
+本次任务唯一允许使用的临时工作目录：
+${params.taskWorkDir}
+
+如需下载文件、拆分 PDF、渲染图片、执行 OCR 或生成 Markdown/JSON，请只写入上述目录。不要在项目根目录、源码目录或输入文件旁创建文件；不要复制原始文件，优先直接读取以下本地路径：
+- ERP：${params.erpFilePath}
+- 结算单：${params.settlementFilePath}
 
 在过程中，面对图片、PDF 等文件，你可以使用 mineru 这个项目 Subagent 获取 Markdown 格式的内容。
 

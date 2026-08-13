@@ -57,6 +57,7 @@ export const RECONCILIATION_AGENT_INSTRUCTIONS = `你是锐力对账 Agent。请
 4. 不得把 issues 中提到的扣点差异、调整项或各类费用相加后作为 difference。
 5. difference 保留正负号。例如 ERP/DRP 销售额为 512042 元、结算单净营业额为 512047 元时，difference 必须是 -5.00。
 6. matched 仅由上述口径的 difference 是否为 0 决定。
+7. 如需下载、拆页、渲染、OCR 或生成 Markdown，所有中间文件只能写入用户消息指定的本次任务临时目录，不得在项目根目录或源码目录创建任何文件。
 
 最终结果的字段、格式和输出方式严格遵守用户消息中的要求。`;
 

@@ -31,10 +31,12 @@ export function StartView() {
     stopReconciliation,
   } = useReconciliationTask();
 
-  const canStart = Boolean(settlementFile && erpFile);
+  const hasAgentName = Boolean(agentName.trim());
+  const filesReady = Boolean(settlementFile && erpFile);
+  const canStart = filesReady && hasAgentName;
 
   const handleSubmit = () => {
-    if (!settlementFile || !erpFile) return;
+    if (!settlementFile || !erpFile || !hasAgentName) return;
     void startReconciliation({ settlementFile, erpFile, agentName, agentWorkspace });
   };
 
@@ -68,17 +70,18 @@ export function StartView() {
           <span>CHERRYSTUDIO TARGET</span>
           <div>
             <h2 id="agent-selector-title">选择对账 Agent</h2>
-            <p>按名称或工作目录匹配；名称可能重复时请同时填写两项。</p>
+            <p>Agent 名称为必填项；名称重复时可填写工作目录消除歧义。</p>
           </div>
         </div>
         <div className="agent-selector__fields">
           <label>
-            <span>Agent 名称</span>
+            <span>Agent 名称（必填）</span>
             <input
               type="text"
               value={agentName}
               onChange={(event) => setAgentName(event.target.value)}
-              placeholder="留空时使用后端默认 Agent"
+              placeholder="请输入 CherryStudio Agent 名称"
+              required
               autoComplete="off"
             />
           </label>
@@ -118,10 +121,10 @@ export function StartView() {
 
       <section className="launch-bar">
         <div className="launch-copy">
-          <span className={`readiness-dot ${settlementFile && erpFile ? "ready" : ""}`} />
+          <span className={`readiness-dot ${canStart ? "ready" : ""}`} />
           <div>
-            <strong>{settlementFile && erpFile ? "文件已准备完成" : "请先导入两份资料"}</strong>
-            <small>{settlementFile && erpFile ? "点击后仅创建服务端任务，处理过程将实时显示" : "系统需要同时提交结算资料和 ERP 资料"}</small>
+            <strong>{canStart ? "提交信息已准备完成" : filesReady ? "请填写 Agent 名称" : "请先导入两份资料"}</strong>
+            <small>{canStart ? "点击后仅创建服务端任务，处理过程将实时显示" : filesReady ? "Agent 名称是创建对账任务的必填参数" : "系统需要同时提交结算资料和 ERP 资料"}</small>
           </div>
         </div>
         {running ? (

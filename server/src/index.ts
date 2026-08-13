@@ -13,8 +13,10 @@ import { notFoundHandler, errorHandler } from "./middleware/error-handler.js";
 import { cleanupExpiredFiles, cleanupOrphanedFiles } from "./lib/file-storage.js";
 import { resumeIncompleteTasks } from "./services/reconciliation.js";
 import { checkCherryStudioConnection } from "./lib/cherrystudio.js";
+import { resetTaskWorkRoot } from "./lib/runtime-storage.js";
 
 async function main() {
+  resetTaskWorkRoot();
   const app = express();
   app.use((req, res, next) => {
     const origin = req.get("origin");
