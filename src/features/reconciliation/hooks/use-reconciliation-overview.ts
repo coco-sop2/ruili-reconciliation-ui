@@ -17,7 +17,7 @@ export const reconciliationOverviewPageSize = 20;
 
 const emptyFacets = {
   total: 0,
-  byStatus: { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, FAILED: 0 },
+  byStatus: { QUEUED: 0, PROCESSING: 0, SUCCEEDED: 0, NEEDS_REVIEW: 0, REVIEWED: 0, FAILED: 0, CANCELLED: 0, OBSOLETE: 0 },
 };
 
 export function useReconciliationOverview() {
@@ -32,6 +32,8 @@ export function useReconciliationOverview() {
   const [selected, setSelected] = useState<ReconciliationView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
   const requestSequence = useRef(0);
 
   const loadTasks = useCallback(async () => {
@@ -123,6 +125,7 @@ export function useReconciliationOverview() {
     issue: facets.byStatus.NEEDS_REVIEW,
     failed: facets.byStatus.FAILED,
     processing: facets.byStatus.QUEUED + facets.byStatus.PROCESSING,
+    cancelled: facets.byStatus.CANCELLED,
   };
   const trend = statistics?.trend ?? [];
   const maxTrend = Math.max(...trend.map((item) => item.taskCount), 1);
@@ -133,6 +136,38 @@ export function useReconciliationOverview() {
       setSelected({ ...toViewModel(detail), failure: detail.failure?.message ?? null });
     } catch (requestError) {
       setError(requestErrorMessage(requestError, "任务详情加载失败"));
+    }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    setDeletingTaskId(taskId);
+    setError("");
+    try {
+      await reconciliationApi.deleteTask(taskId);
+      setSelected((current) => current?.id === taskId ? null : current);
+      if (tasks.length === 1 && page > 1) {
+        setPage((current) => Math.max(1, current - 1));
+      } else {
+        await loadTasks();
+      }
+      await loadStatistics();
+    } catch (requestError) {
+      setError(requestErrorMessage(requestError, "删除对账任务失败"));
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
+
+  const stopTask = async (taskId: string) => {
+    setStoppingTaskId(taskId);
+    setError("");
+    try {
+      await reconciliationApi.stopTask(taskId);
+      await Promise.all([loadTasks(), loadStatistics()]);
+    } catch (requestError) {
+      setError(requestErrorMessage(requestError, "停止对账任务失败"));
+    } finally {
+      setStoppingTaskId(null);
     }
   };
 
@@ -155,6 +190,10 @@ export function useReconciliationOverview() {
     trend,
     maxTrend,
     openDetails,
+    deleteTask,
+    deletingTaskId,
+    stopTask,
+    stoppingTaskId,
     pageSize: reconciliationOverviewPageSize,
   };
 }

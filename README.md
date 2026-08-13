@@ -1,50 +1,111 @@
-# 锐力对账前端
+# 锐力对账
 
-这是一个 Vite + React 对账工作台。前端上传结算资料与 ERP 资料，将文件 URL 填入提示词，并向 CherryStudio agent session 发送对账消息；文件解析、OCR、金额计算和结果判断由 agent 完成。
+这是一个 Vite + React 前端、Express + Prisma 后端的本机对账工作台。前端只负责上传资料、展示任务和处理审核；后端保存文件和任务，通过 CherryStudio Enterprise Agent 完成文件识别与对账，并把结果写入 PostgreSQL。
 
-## 启动
+## 交付给另一台电脑
 
-需要 Node.js `>=22.13.0`。
+代码可以直接交付，但不要把你自己的 `server/.env`、`.env.local` 或 SSH 私钥一起发送。这些文件已被 Git 忽略。
 
-```bash
+接收人的电脑需要：
+
+- Windows 10/11，Node.js 22.13 或更高版本。
+- Windows OpenSSH Client（系统“可选功能”里的 OpenSSH 客户端）。
+- CherryStudio 企业版已启动，API 服务监听 `127.0.0.1:24333`，并已创建名为“锐力”的对账 Agent。
+
+第一次使用：
+
+1. 双击 `首次配置.bat`。
+2. 脚本会创建 SSH 密钥，把公钥复制到剪贴板，并打开 `server/.env`。
+3. 把公钥交给服务器管理员，管理员只需授权一次。
+4. 通过安全渠道取得数据库密码和接收人自己的 CherryStudio API Key，填入 `server/.env` 后保存。
+5. 公钥授权完成后，双击 `一键启动.bat`。
+
+以后每次只需双击 `一键启动.bat`。启动器会自动：
+
+- 首次安装前后端 npm 依赖。
+- 建立 `127.0.0.1:5433` 到服务器 PostgreSQL 的 SSH 隧道。
+- 生成 Prisma Client 并应用尚未执行的数据库迁移。
+- 启动并深度检查数据库、后端、CherryStudio 和前端。
+- 打开：
+
+- 前端：`http://127.0.0.1:3333/`
+- 后端健康检查：`http://127.0.0.1:3001/api/health`
+
+启动日志保存在 `.runtime/logs/`，失败时直接看提示指向的日志文件。
+
+## 项目目录约定
+
+源码、文档与运行时文件分开存放，扫描文件后不会再向项目根目录散落中间产物：
+
+```text
+billcompare/
+├─ src/                 # 前端源码
+├─ server/              # 后端源码、数据库模型与迁移
+├─ scripts/             # 启动和配置脚本
+├─ tests/               # 前端与集成测试
+├─ docs/                # 项目文档
+└─ .runtime/            # 本机运行数据，不提交 Git
+   ├─ logs/             # 前端、后端和 SSH 隧道日志
+   ├─ data/uploads/     # 新安装环境上传的原始对账文件
+   ├─ tasks/<任务ID>/   # 单次扫描中间文件，任务结束自动删除
+   └─ legacy/           # 旧版根目录产物的保留归档
+```
+
+已有安装如果在 `server/.env` 中配置了旧的 `UPLOAD_DIR=./data/files`，原始文件会继续留在旧目录，避免破坏历史任务；新安装默认使用 `.runtime/data/uploads/`。
+
+### 服务器管理员操作
+
+管理员将接收人的公钥追加到服务器 `cherry` 用户的 `~/.ssh/authorized_keys`。建议为项目使用专用 SSH 用户，并仅允许转发到 `127.0.0.1:5432`，不要共享服务器密码或私钥。
+
+管理员还需通过安全渠道提供数据库账号密码。不要把真实密码、CherryStudio API Key 或任何私钥提交到 Git。
+
+## 手动启动
+
+需要排查时也可以分别启动：
+
+```powershell
 npm install
+cd server
+npm install
+npm run prisma:generate
+npm run prisma:deploy
 npm run dev
 ```
 
-本地开发地址默认为 `http://localhost:3333/`。
+另开终端，在项目根目录执行：
 
-## CherryStudio 配置
-
-复制 `.env.example` 为 `.env.local`，按需填写上传服务和 CherryStudio 地址：
-
-```env
-# 可留空；开发/预览服务器会使用内置本地上传端点
-VITE_RECONCILIATION_UPLOAD_URL=
-VITE_CHERRYSTUDIO_BASE_URL=http://127.0.0.1:24333
-VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=锐力体育
-VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=
+```powershell
+npm run dev
 ```
 
-API Key 不需要写入环境文件。请在“发起一笔新对账”页面的必填输入框中填写；Key 只保留在当前页面会话的内存中，刷新页面后需重新输入。
+## 环境变量
 
-点击“开始对账”后：
+前端仅使用：
 
-1. 前端把两份文件上传到本地 Vite 上传端点，获得 CherryStudio 可访问的 HTTP URL；配置 `VITE_RECONCILIATION_UPLOAD_URL` 时改用外部上传服务。
-2. 前端使用页面填写的 API Key，并根据 Agent 名称和/或工作目录调用 `/v1/agents`，唯一匹配 Agent ID。
-3. 前端读取该 Agent 的 session；当前要求恰好只有一个 session。
-4. 前端把文件 URL 填入 `buildReconciliationPrompt`，向 `/v1/agents/{agentId}/sessions/{sessionId}/messages` 发送 `{ "content": prompt }`。
-5. agent 返回 `{ "matched": boolean, "difference": number }`；前端将其映射到成功或待审核状态。
+```env
+VITE_API_BASE_URL=http://127.0.0.1:3001
+```
 
-当前上传控件支持 `.xlsx`、`.xls`、`.pdf`、`.png`、`.jpg`、`.jpeg`，单个文件最大 20 MB。详细接口见 [CherryStudio Agent 调用契约](docs/cherrystudio-agent-contract.md)。
+服务器地址、SSH 隧道、Agent 默认名称、工作目录和服务凭据都由后端配置，详见 `server/.env.example`。`CHERRYSTUDIO_API_KEY` 和 `DATABASE_URL` 只能保存在接收人本机的 `server/.env`，不要提交到 Git。
 
-内置上传端点适用于 `npm run dev` 和 `npm run start` 的本机流程，文件临时保存在操作系统临时目录。纯静态托管生产环境应配置独立的 `VITE_RECONCILIATION_UPLOAD_URL`。
+## 对账流程
 
-> API Key 会由浏览器直接用于 CherryStudio 请求。当前方式适用于本机受控环境；公开部署应通过服务端代理调用 CherryStudio，避免向浏览器暴露长期凭证。
+1. 前端把结算资料与 ERP 资料上传到 `POST /api/tasks`。
+2. 后端在数据库创建任务和文件记录，并把原始文件保存到 `UPLOAD_DIR` 配置的受控目录。
+3. 后端匹配 CherryStudio Agent，为每次任务创建独立 Session，并发送对账提示词。
+4. Agent 返回严格 JSON；差额统一定义为 `ERP 金额 - 结算金额`。
+5. 后端校验结果并写入任务和审核明细，前端通过任务详情接口轮询进度。
+6. 后端短暂断线时前端自动重连；服务重启后会从数据库恢复未完成任务，最多尝试三次。
 
-## 常用命令
+## 检查
 
-- `npm run dev`：启动开发服务器
-- `npm run build`：构建生产产物
-- `npm run start`：预览生产构建
-- `npm run lint`：运行代码规范检查
-- `npm test`：构建并运行项目约束测试
+```powershell
+npm test
+npm run typecheck
+npm run lint
+cd server
+npm run build
+npx prisma validate
+```
+
+服务默认只监听本机 `127.0.0.1`，并仅接受本机前端来源。如需部署到其他机器，应先增加正式鉴权、HTTPS 和受控的 CORS 配置。

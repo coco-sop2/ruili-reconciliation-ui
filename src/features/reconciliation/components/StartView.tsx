@@ -21,14 +21,22 @@ export function StartView() {
     handleSettlementFileChange,
     handleErpFileChange,
   } = useStartReconciliation();
-  const { running, error, logs, apiKey, setApiKey, startReconciliation } = useReconciliationTask();
+  const {
+    running,
+    canStop,
+    stopping,
+    error,
+    logs,
+    startReconciliation,
+    stopReconciliation,
+  } = useReconciliationTask();
 
-  const canStart = Boolean(
-    settlementFile && erpFile && apiKey.trim() && (agentName.trim() || agentWorkspace.trim()),
-  );
+  const hasAgentName = Boolean(agentName.trim());
+  const filesReady = Boolean(settlementFile && erpFile);
+  const canStart = filesReady && hasAgentName;
 
   const handleSubmit = () => {
-    if (!settlementFile || !erpFile) return;
+    if (!settlementFile || !erpFile || !hasAgentName) return;
     void startReconciliation({ settlementFile, erpFile, agentName, agentWorkspace });
   };
 
@@ -62,17 +70,18 @@ export function StartView() {
           <span>CHERRYSTUDIO TARGET</span>
           <div>
             <h2 id="agent-selector-title">选择对账 Agent</h2>
-            <p>按名称或工作目录匹配；API Key 仅在当前页面会话内保留。</p>
+            <p>Agent 名称为必填项；名称重复时可填写工作目录消除歧义。</p>
           </div>
         </div>
         <div className="agent-selector__fields">
           <label>
-            <span>Agent 名称</span>
+            <span>Agent 名称（必填）</span>
             <input
               type="text"
               value={agentName}
               onChange={(event) => setAgentName(event.target.value)}
-              placeholder="例如：锐力体育"
+              placeholder="请输入 CherryStudio Agent 名称"
+              required
               autoComplete="off"
             />
           </label>
@@ -84,17 +93,6 @@ export function StartView() {
               onChange={(event) => setAgentWorkspace(event.target.value)}
               placeholder="可选，用于消除同名 Agent 歧义"
               autoComplete="off"
-            />
-          </label>
-          <label>
-            <span>API Key（必填）</span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder="请输入 CherryStudio API Key"
-              autoComplete="off"
-              required
             />
           </label>
         </div>
@@ -123,15 +121,21 @@ export function StartView() {
 
       <section className="launch-bar">
         <div className="launch-copy">
-          <span className={`readiness-dot ${settlementFile && erpFile ? "ready" : ""}`} />
+          <span className={`readiness-dot ${canStart ? "ready" : ""}`} />
           <div>
-            <strong>{settlementFile && erpFile && !apiKey.trim() ? "请填写 API Key" : settlementFile && erpFile ? "文件已准备完成" : "请先导入两份资料"}</strong>
-            <small>{settlementFile && erpFile && !apiKey.trim() ? "API Key 为必填项，且不会写入环境文件" : settlementFile && erpFile ? "点击后仅创建服务端任务，处理过程将实时显示" : "系统需要同时提交结算资料和 ERP 资料"}</small>
+            <strong>{canStart ? "提交信息已准备完成" : filesReady ? "请填写 Agent 名称" : "请先导入两份资料"}</strong>
+            <small>{canStart ? "点击后仅创建服务端任务，处理过程将实时显示" : filesReady ? "Agent 名称是创建对账任务的必填参数" : "系统需要同时提交结算资料和 ERP 资料"}</small>
           </div>
         </div>
-        <button type="button" className="primary-button" disabled={!canStart || running} onClick={handleSubmit}>
-          {running ? <><span className="spinner" /> 正在提交任务</> : <>开始对账<span>→</span></>}
-        </button>
+        {running ? (
+          <button type="button" className="stop-button" disabled={!canStop || stopping} onClick={() => void stopReconciliation()}>
+            <span aria-hidden="true">■</span> {canStop ? (stopping ? "正在停止" : "停止对账") : "正在创建任务"}
+          </button>
+        ) : (
+          <button type="button" className="primary-button" disabled={!canStart} onClick={handleSubmit}>
+            开始对账<span>→</span>
+          </button>
+        )}
       </section>
 
       {formError && <div className="api-error" role="alert"><b>文件校验失败</b><span>{formError}</span></div>}

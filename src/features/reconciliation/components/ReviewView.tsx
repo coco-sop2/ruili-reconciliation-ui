@@ -17,6 +17,8 @@ export function ReviewView() {
     reviewedCount,
     loading,
     error,
+    errorTitle,
+    updatingItemId,
     setReviewStatus,
   } = useReviewItems();
 
@@ -34,7 +36,7 @@ export function ReviewView() {
         </div>
       </div>
 
-      {error && <div className="api-error overview-error" role="alert"><b>审核明细加载失败</b><span>{error}</span></div>}
+      {error && <div className="api-error overview-error" role="alert"><b>{errorTitle}</b><span>{error}</span></div>}
 
       <section className="records-section review-section">
         <div className="records-head">
@@ -68,8 +70,8 @@ export function ReviewView() {
                     <td><span className={`review-pill review-pill--${status.toLowerCase()}`}>{reviewStatusLabels[status]}</span></td>
                     <td>
                       <div className="review-actions">
-                        <button type="button" onClick={() => setReviewStatus(item.id, "APPROVED")}>确认</button>
-                        <button type="button" onClick={() => setReviewStatus(item.id, "IGNORED")}>忽略</button>
+                        <button type="button" disabled={updatingItemId === item.id} onClick={() => void setReviewStatus(task.id, item.id, "APPROVED")}>确认</button>
+                        <button type="button" disabled={updatingItemId === item.id} onClick={() => void setReviewStatus(task.id, item.id, "IGNORED")}>忽略</button>
                       </div>
                     </td>
                   </tr>

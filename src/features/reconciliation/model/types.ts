@@ -4,7 +4,10 @@ export type ReconciliationStatus =
   | "PROCESSING"
   | "SUCCEEDED"
   | "NEEDS_REVIEW"
-  | "FAILED";
+  | "REVIEWED"
+  | "FAILED"
+  | "CANCELLED"
+  | "OBSOLETE";
 
 export type Money = {
   currency: "CNY";
@@ -45,6 +48,7 @@ export type ReconciliationReviewItem = {
 
 export type ReconciliationTaskSummary = {
   id: string;
+  name: string | null;
   status: ReconciliationStatus;
   periodLabel: string | null;
   settlementFile: UploadedFile;
@@ -60,6 +64,7 @@ export type ReconciliationTaskSummary = {
 
 export type ReconciliationTaskDetail = ReconciliationTaskSummary & {
   reviewItems: ReconciliationReviewItem[];
+  progressLogs?: ReconciliationProcessLog[];
   failure: {
     code: string;
     message: string;
@@ -73,6 +78,7 @@ export type ReconciliationStatistics = {
   needsReviewTasks: number;
   failedTasks: number;
   processingTasks: number;
+  reviewedTasks?: number;
   autoMatchRate: number;
   monthOverMonthRate: number;
   totalDifferenceAmount: Money;
@@ -99,9 +105,8 @@ export type ReconciliationProgressListener = (log: ReconciliationProcessLog) => 
 export type CreateReconciliationTaskInput = {
   settlementFile: File;
   erpFile: File;
-  apiKey: string;
   agentSelector: {
-    name?: string;
+    name: string;
     workspace?: string;
   };
   onProgress?: ReconciliationProgressListener;

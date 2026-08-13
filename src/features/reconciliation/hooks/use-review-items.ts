@@ -18,6 +18,8 @@ export function useReviewItems() {
   const [reviewStatuses, setReviewStatuses] = useState<Record<string, ReviewItemStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [errorTitle, setErrorTitle] = useState("");
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -26,15 +28,27 @@ export function useReviewItems() {
       try {
         setLoading(true);
         setError("");
-        const result = await reconciliationApi.listTasks({
-          status: ["NEEDS_REVIEW"],
-          page: 1,
-          pageSize: 100,
-        });
-        const details = await Promise.all(result.items.map((task) => reconciliationApi.getTask(task.id)));
+        setErrorTitle("");
+        const summaries = [];
+        let page = 1;
+        let total = 0;
+        do {
+          const result = await reconciliationApi.listTasks({
+            status: ["NEEDS_REVIEW", "REVIEWED"],
+            page,
+            pageSize: 100,
+          });
+          summaries.push(...result.items);
+          total = result.total;
+          page += 1;
+        } while (summaries.length < total);
+        const details = await Promise.all(summaries.map((task) => reconciliationApi.getTask(task.id)));
         if (active) setTasks(details.filter((task) => task.reviewItems.length > 0));
       } catch (requestError) {
-        if (active) setError(requestErrorMessage(requestError, "审核明细加载失败"));
+        if (active) {
+          setErrorTitle("审核明细加载失败");
+          setError(requestErrorMessage(requestError, "审核明细加载失败"));
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -51,8 +65,33 @@ export function useReviewItems() {
   const pendingCount = rows.filter(({ item }) => (reviewStatuses[item.id] ?? item.status) === "PENDING").length;
   const reviewedCount = rows.length - pendingCount;
 
-  const setReviewStatus = (itemId: string, status: ReviewItemStatus) => {
+  const setReviewStatus = async (taskId: string, itemId: string, status: ReviewItemStatus) => {
+    const previous = reviewStatuses[itemId];
     setReviewStatuses((current) => ({ ...current, [itemId]: status }));
+    setUpdatingItemId(itemId);
+    setError("");
+    setErrorTitle("");
+    try {
+      const task = await reconciliationApi.updateReviewItem(taskId, itemId, status);
+      setTasks((current) => current
+        .map((item) => item.id === taskId ? task : item));
+      setReviewStatuses((current) => {
+        const next = { ...current };
+        delete next[itemId];
+        return next;
+      });
+    } catch (requestError) {
+      setReviewStatuses((current) => {
+        const next = { ...current };
+        if (previous) next[itemId] = previous;
+        else delete next[itemId];
+        return next;
+      });
+      setErrorTitle("审核状态保存失败");
+      setError(requestErrorMessage(requestError, "审核状态保存失败"));
+    } finally {
+      setUpdatingItemId(null);
+    }
   };
 
   return {
@@ -62,6 +101,8 @@ export function useReviewItems() {
     reviewedCount,
     loading,
     error,
+    errorTitle,
+    updatingItemId,
     setReviewStatus,
   };
 }

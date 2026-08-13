@@ -1,8 +1,14 @@
-// 文件说明：项目约束测试，确认 Vite 构建和 CherryStudio 接口链路没有被改坏。
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
-import { createServer } from "vite";
+
+const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
+
+function extractPromptTemplate(fileSource) {
+  const match = fileSource.match(/return `(我有一个对账任务：[\s\S]*?- name: 字符串，drp表单中的商城名称)`/);
+  assert.ok(match, "未找到对账 Prompt 模板");
+  return match[1];
+}
 
 async function readBuiltClient() {
   const assetsDirectory = new URL("../dist/assets/", import.meta.url);
@@ -12,12 +18,11 @@ async function readBuiltClient() {
       .filter((assetName) => assetName.endsWith(".js"))
       .map((assetName) => readFile(new URL(assetName, assetsDirectory), "utf8")),
   );
-
   return scripts.join("\n");
 }
 
 test("builds the Vite reconciliation shell", async () => {
-  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const html = await source("../dist/index.html");
   const client = await readBuiltClient();
 
   assert.match(html, /<div id="root"><\/div>/);
@@ -27,175 +32,122 @@ test("builds the Vite reconciliation shell", async () => {
   assert.doesNotMatch(client, /vinext|cloudflare|wrangler|next\/headers|next\/font/i);
 });
 
-test("routes reconciliation work through CherryStudio", async () => {
+test("routes reconciliation through the HTTP backend", async () => {
   const [
-    app,
-    startView,
-    overviewView,
-    reviewView,
-    startHook,
-    taskProvider,
-    overviewHook,
-    reviewHook,
     apiEntry,
-    cherryStudioClient,
-    responseAdapter,
-    fileRules,
-    types,
-    contract,
-    envExample,
-    fileUploader,
-    promptBuilder,
-    agentResolver,
-    viteConfig,
+    httpClient,
+    taskProvider,
+    startView,
+    processLogPanel,
+    modelTypes,
+    reviewHook,
+    overview,
+    serverTasks,
+    serverReviewItems,
+    serverFiles,
+    reconciliationService,
+    promptTemplate,
+    cherryStudio,
+    taskProgress,
+    agentOutputContract,
+    schema,
+    startAll,
   ] = await Promise.all([
-    readFile(new URL("../src/app/App.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/components/StartView.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/components/OverviewView.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/components/ReviewView.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/hooks/use-start-reconciliation.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/hooks/ReconciliationTaskProvider.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/hooks/use-reconciliation-overview.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/hooks/use-review-items.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/index.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/cherrystudio-client.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/response-adapter.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/model/file-rules.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/model/types.ts", import.meta.url), "utf8"),
-    readFile(new URL("../docs/cherrystudio-agent-contract.md", import.meta.url), "utf8"),
-    readFile(new URL("../.env.example", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/file-uploader.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/prompt.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/features/reconciliation/api/agent-resolver.ts", import.meta.url), "utf8"),
-    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
+    source("../src/features/reconciliation/api/index.ts"),
+    source("../src/features/reconciliation/api/http-client.ts"),
+    source("../src/features/reconciliation/hooks/ReconciliationTaskProvider.tsx"),
+    source("../src/features/reconciliation/components/StartView.tsx"),
+    source("../src/features/reconciliation/components/ProcessLogPanel.tsx"),
+    source("../src/features/reconciliation/model/types.ts"),
+    source("../src/features/reconciliation/hooks/use-review-items.ts"),
+    source("../src/features/reconciliation/components/OverviewView.tsx"),
+    source("../server/src/routes/tasks.ts"),
+    source("../server/src/routes/review-items.ts"),
+    source("../server/src/routes/files.ts"),
+    source("../server/src/services/reconciliation.ts"),
+    source("../src/features/reconciliation/api/prompt.ts"),
+    source("../server/src/lib/cherrystudio.ts"),
+    source("../server/src/lib/task-progress.ts"),
+    source("../docs/agent-output-contract.md"),
+    source("../server/prisma/schema.prisma"),
+    source("../scripts/start-all.mjs"),
   ]);
-  const pageSource = [app, startView, overviewView, reviewView, startHook, taskProvider, overviewHook, reviewHook].join("\n");
-  const apiSource = [apiEntry, cherryStudioClient, responseAdapter, fileRules, fileUploader, promptBuilder, agentResolver, viteConfig].join("\n");
-  const runtimeSource = [pageSource, apiSource].join("\n");
 
-  assert.match(pageSource, /useStartReconciliation/);
-  assert.match(pageSource, /useReconciliationOverview/);
-  assert.match(pageSource, /useReviewItems/);
-  assert.match(pageSource, /reconciliationApi\.createTask/);
-  assert.match(pageSource, /reconciliationApi\.listTasks/);
-  assert.match(pageSource, /reconciliationApi\.getTask/);
-  assert.match(pageSource, /reconciliationApi\.getStatistics/);
-  assert.match(pageSource, /status: \["NEEDS_REVIEW"\]/);
-  assert.match(pageSource, /reviewItems/);
-  assert.match(pageSource, /结算单金额/);
-  assert.match(pageSource, /ERP 金额/);
-  assert.match(pageSource, /差额/);
-  assert.match(pageSource, /reconciliationFileAccept/);
-  assert.match(pageSource, /validateReconciliationFile/);
-  assert.match(pageSource, /Agent 名称/);
-  assert.match(pageSource, /Agent 工作目录/);
-  assert.match(pageSource, /API Key（必填）/);
-  assert.match(pageSource, /type="password"/);
-  assert.match(pageSource, /apiKey\.trim\(\)/);
-  assert.match(pageSource, /apiKey: requestApiKey/);
-  assert.match(pageSource, /redactApiKey/);
-  assert.match(pageSource, /appendSafeLog/);
+  assert.match(apiEntry, /VITE_API_BASE_URL/);
+  assert.match(apiEntry, /HttpReconciliationApi/);
+  assert.match(httpClient, /FormData/);
+  assert.match(httpClient, /settlementFile/);
+  assert.match(httpClient, /erpFile/);
+  assert.match(httpClient, /updateReviewItem/);
+  assert.match(httpClient, /deleteTask/);
+  assert.match(httpClient, /stopTask/);
+  assert.match(httpClient, /\/stop/);
+  assert.match(httpClient, /method: "DELETE"/);
+  assert.match(taskProvider, /progressLogs/);
+  assert.match(taskProvider, /pollIntervalMs/);
+  assert.match(taskProvider, /`local:\$\{\+\+logIdRef\.current\}`/);
+  assert.match(taskProvider, /findIndex\(\(item\) => item\.id === log\.id\)/);
+  assert.doesNotMatch(taskProvider, /seenServerLogIds|seenIds\.has/);
+  assert.match(processLogPanel, /<details className="process-log__message" open=\{log\.expanded\}>/);
+  assert.match(processLogPanel, /<pre>\{log\.details\}<\/pre>/);
+  assert.match(processLogPanel, /\[logs, collapsed\]/);
+  assert.match(modelTypes, /details\?: string/);
+  assert.match(modelTypes, /expanded\?: boolean/);
+  assert.doesNotMatch(modelTypes, /apiKey: string/);
+  assert.match(reviewHook, /reconciliationApi\.updateReviewItem/);
+  assert.match(reviewHook, /\["NEEDS_REVIEW", "REVIEWED"\]/);
+  assert.match(overview, /window\.confirm/);
+  assert.match(overview, /record\.name/);
 
-  assert.match(apiSource, /createReconciliationPromptPayload/);
-  assert.match(apiSource, /buildReconciliationPrompt/);
-  assert.match(apiSource, /createTaskFromCherryStudioResponse/);
-  assert.match(apiSource, /readCherryStudioJson/);
-  assert.match(apiSource, /"X-File-Name": encodeURIComponent\(file\.name\)/);
-  assert.match(apiSource, /body: file/);
-  assert.match(apiSource, /localReconciliationUploadPlugin/);
-  assert.match(apiSource, /\/api\/reconciliation\/upload/);
-  assert.match(apiSource, /uploadBoth/);
-  assert.match(apiSource, /settlementFileUrl/);
-  assert.match(apiSource, /erpFileUrl/);
-  assert.match(apiSource, /url: fileUrls\.settlementFileUrl/);
-  assert.match(apiSource, /url: fileUrls\.erpFileUrl/);
-  assert.doesNotMatch(cherryStudioClient, /FormData|multipart\/form-data/);
-  assert.match(apiSource, /JSON\.stringify\(\{ content: prompt \}\)/);
-  assert.match(apiSource, /method: "POST"/);
-  assert.doesNotMatch(runtimeSource, /VITE_CHERRYSTUDIO_API_KEY/);
-  assert.match(apiSource, /findCherryAgentSession/);
-  assert.match(apiSource, /\/v1\/agents\?limit=100&offset=/);
-  assert.match(apiSource, /createCherryAgentSession/);
-  assert.match(apiSource, /buildReconciliationSessionName/);
-  assert.match(apiSource, /\/v1\/agents\/\$\{encodeURIComponent\(agent\.id\)\}\/sessions/);
-  assert.match(apiSource, /body: JSON\.stringify\(\{ name: buildReconciliationSessionName\(\) \}\)/);
-  assert.match(apiSource, /\["data", "agents"\]/);
-  assert.match(apiSource, /normalizePath/);
-  assert.match(apiSource, /issues/);
-  assert.match(apiSource, /summary/);
-  assert.match(apiSource, /reviewItemsFromResponse/);
-  assert.doesNotMatch(cherryStudioClient, /"Idempotency-Key"/);
-  assert.match(apiSource, /Authorization: `Bearer \$\{input\.apiKey\}`/);
-  assert.match(apiSource, /"Content-Type": "application\/json"/);
-  assert.match(apiSource, /matched/);
-  assert.match(apiSource, /difference/);
-  assert.match(apiSource, /\.pdf/);
-  assert.match(apiSource, /\.png/);
-  assert.match(apiSource, /\.jpeg/);
-  assert.match(apiSource, /getReconciliationFileMetadata/);
-  assert.match(apiSource, /extension/);
-  assert.doesNotMatch(apiSource, /VITE_API_BASE_URL|HttpReconciliationApi|reconciliationApiEndpoints/);
-  assert.doesNotMatch(runtimeSource, /\.\.\/\.\.\/lib|\.\/reconciliation-/);
+  assert.match(serverTasks, /status\(202\)/);
+  assert.match(serverTasks, /getTaskProgress/);
+  assert.match(serverTasks, /tasksRouter\.delete/);
+  assert.match(serverTasks, /tasksRouter\.post\("\/:id\/stop"/);
+  assert.match(serverTasks, /transaction\.reconciliationTask\.delete/);
+  assert.match(serverTasks, /transaction\.file\.updateMany/);
+  assert.match(serverFiles, /toUpperCase\(\)/);
+  assert.match(reconciliationService, /files\/SETTLEMENT/);
+  assert.match(reconciliationService, /files\/ERP/);
+  assert.doesNotMatch(reconciliationService, /attemptCount >= 3/);
+  assert.doesNotMatch(reconciliationService, /RETRY_LIMIT_REACHED/);
+  assert.doesNotMatch(reconciliationService, /data:\s*\{\s*status:\s*TaskStatus\.OBSOLETE/);
+  assert.match(reconciliationService, /每次对账都是独立业务记录/);
+  assert.match(serverReviewItems, /SELECT 1 AS acquired\s+FROM pg_advisory_xact_lock/);
+  assert.doesNotMatch(serverReviewItems, /SELECT pg_advisory_xact_lock/);
+  assert.match(cherryStudio, /createAgentSession/);
+  assert.match(cherryStudio, /method: "POST"/);
+  assert.match(cherryStudio, /buildReconciliationSessionName/);
+  assert.match(cherryStudio, /AbortSignal\.timeout/);
+  assert.match(cherryStudio, /normalizeDifferenceDirection/);
+  assert.match(cherryStudio, /extractTaskName/);
+  assert.match(cherryStudio, /reasoningId \?\?= crypto\.randomUUID\(\)/);
+  assert.match(cherryStudio, /details: rawDetail\(event\.input\)/);
+  assert.match(cherryStudio, /details: rawDetail\(event\.output\)/);
+  assert.match(taskProgress, /findIndex\(\(item\) => item\.id === log\.id\)/);
+  assert.match(taskProgress, /maxLogsPerTask = 300/);
+  assert.match(agentOutputContract, /必须且只能包含以下五个字段/);
+  assert.match(agentOutputContract, /不接受 `issues` 数组/);
+  assert.match(reconciliationService, /ERP 金额 - 结算单金额/);
+  assert.match(reconciliationService, /drp表单中的商城名称/);
+  assert.match(reconciliationService, /SELECT 1 AS acquired\s+FROM pg_advisory_xact_lock/);
+  assert.doesNotMatch(reconciliationService, /SELECT pg_advisory_xact_lock/);
+  assert.match(promptTemplate, /drp表单中的商城名称/);
+  assert.match(promptTemplate, /"issues": ""/);
+  assert.match(promptTemplate, /格式必须为 "YYYY-MM"/);
+  assert.equal(extractPromptTemplate(reconciliationService), extractPromptTemplate(promptTemplate));
 
-  assert.match(types, /"QUEUED"[\s\S]*"PROCESSING"[\s\S]*"SUCCEEDED"[\s\S]*"NEEDS_REVIEW"[\s\S]*"FAILED"/);
-  assert.match(contract, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME/);
-  assert.match(contract, /Authorization: Bearer/);
-  assert.match(contract, /\/v1\/agents\//);
-  assert.match(contract, /NEEDS_REVIEW/);
-  assert.match(contract, /settlementValue/);
-  assert.match(contract, /erpValue/);
-  assert.match(contract, /differenceAmount/);
-  assert.match(contract, /Excel/);
-  assert.match(contract, /PDF/);
-  assert.match(contract, /extension/);
-  assert.match(envExample, /VITE_RECONCILIATION_UPLOAD_URL=/);
-  assert.doesNotMatch(envExample, /VITE_CHERRYSTUDIO_API_KEY=/);
-  assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_NAME=/);
-  assert.match(envExample, /VITE_CHERRYSTUDIO_DEFAULT_AGENT_WORKSPACE=/);
-  assert.doesNotMatch(envExample, /VITE_API_BASE_URL/);
-});
-
-test("keeps raw reasoning and tool details in stable process logs", async (t) => {
-  const vite = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
-  t.after(() => vite.close());
-  const { readCherryStudioJson } = await vite.ssrLoadModule("/src/features/reconciliation/api/response-adapter.ts");
-  const encoder = new TextEncoder();
-  const reasoning = "the JPG using mineru.\n扣点 rates for different sales amounts\n17.00";
-  const command = "curl -s -o /tmp/erp.xlsx https://example.test/full-command-that-must-not-be-truncated";
-  const processEvents = [];
-  const encodeEvents = (events) => encoder.encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
-  const body = new ReadableStream({
-    start(controller) {
-      controller.enqueue(encodeEvents([
-        { type: "start" },
-        { type: "reasoning-start" },
-        { type: "reasoning-delta", text: reasoning.slice(0, 20) },
-      ]));
-      setTimeout(() => {
-        controller.enqueue(encodeEvents([
-          { type: "reasoning-delta", text: reasoning.slice(20) },
-          { type: "reasoning-end" },
-          { type: "tool-call", toolName: "Bash", input: { command } },
-          { type: "tool-result", toolName: "Bash", output: "ERP downloaded: 9952 bytes" },
-          { type: "text-delta", text: '{"matched":false,"difference":17}' },
-          { type: "finish" },
-        ]));
-        controller.close();
-      }, 120);
-    },
-  });
-
-  const result = await readCherryStudioJson(
-    new Response(body, { headers: { "content-type": "text/event-stream" } }),
-    (level, message, options) => processEvents.push({ level, message, options }),
-  );
-
-  const thoughtUpdates = processEvents.filter((event) => event.options?.details?.includes("the JPG using mineru"));
-  assert.equal(new Set(thoughtUpdates.map((event) => event.options.id)).size, 1);
-  assert.equal(thoughtUpdates[0].options.expanded, true);
-  assert.equal(thoughtUpdates.at(-1).options.expanded, false);
-  assert.equal(thoughtUpdates.at(-1).options.details, reasoning);
-  assert.equal(processEvents.find((event) => event.message.startsWith("调用工具 Bash")).options.details, JSON.stringify({ command }, null, 2));
-  assert.equal(result.status, "NEEDS_REVIEW");
-  assert.equal(result.summary.differenceAmount, "17.00");
+  assert.match(schema, /provider = "postgresql"/);
+  assert.match(schema, /model ReconciliationTask/);
+  assert.match(schema, /name\s+String\?/);
+  assert.match(schema, /model ReconciliationReviewItem/);
+  assert.match(schema, /model File/);
+  assert.match(startAll, /npm-cli\.js/);
+  assert.doesNotMatch(startAll, /spawnSync\(npmCommand/);
+  assert.match(startAll, /\[viteCli, "preview"/);
+  assert.match(httpClient, /startupRetryDelaysMs/);
+  assert.match(serverTasks, /AGENT_NAME_REQUIRED/);
+  assert.match(serverTasks, /agentName 为必填字段/);
+  assert.match(httpClient, /formData\.append\("agentName", agentName\)/);
+  assert.match(startView, /Agent 名称（必填）/);
+  assert.match(startView, /required/);
 });
