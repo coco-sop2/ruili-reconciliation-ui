@@ -2,20 +2,31 @@
 // 一键启动：检查本机配置和依赖，建立数据库 SSH 隧道，再启动前后端。
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { credentialStatus, readCredentials } from "./local-config.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER_DIR = path.join(ROOT, "server");
 const SERVER_ENV_PATH = path.join(SERVER_DIR, ".env");
-const SETUP_SCRIPT = path.join(ROOT, "scripts", "setup.mjs");
+const SERVER_ENV_EXAMPLE = path.join(SERVER_DIR, ".env.example");
+const FRONTEND_ENV_PATH = path.join(ROOT, ".env.local");
+const FRONTEND_ENV_EXAMPLE = path.join(ROOT, ".env.example");
 const FRONTEND_PORT = 3333;
+const CONFIG_PORT = 3334;
 const NO_BROWSER = process.argv.includes("--no-browser");
 const LOG_DIR = path.join(ROOT, ".runtime", "logs");
+const ASKPASS_PATH = path.join(ROOT, ".runtime", "bin", "billcompare-askpass-v1.exe");
 
 const log = (message) => console.log(`[一键启动] ${message}`);
 
@@ -45,15 +56,6 @@ function intSetting(values, key, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function expandHome(value) {
-  if (!value) return path.join(os.homedir(), ".ssh", "id_ed25519");
-  if (value === "~") return os.homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return path.resolve(value);
-}
-
 function loadSettings() {
   const values = parseEnvFile(SERVER_ENV_PATH);
   return {
@@ -61,7 +63,6 @@ function loadSettings() {
     sshHost: values.SSH_HOST || "8.133.196.107",
     sshPort: intSetting(values, "SSH_PORT", 32222),
     sshUser: values.SSH_USER || "cherry",
-    sshIdentityFile: expandHome(values.SSH_IDENTITY_FILE),
     localDatabasePort: intSetting(values, "SSH_LOCAL_DATABASE_PORT", 5433),
     remoteDatabaseHost: values.SSH_REMOTE_DATABASE_HOST || "127.0.0.1",
     remoteDatabasePort: intSetting(values, "SSH_REMOTE_DATABASE_PORT", 5432),
@@ -84,34 +85,49 @@ function assertPrerequisites() {
   }
 }
 
-function configurationProblems(settings) {
-  const problems = [];
-  const databaseUrl = settings.values.DATABASE_URL || "";
-  if (!databaseUrl || /:password@/i.test(databaseUrl)) {
-    problems.push("DATABASE_URL 尚未填写真实数据库密码");
+function setEnvValue(content, key, value) {
+  if (/[\r\n]/.test(value)) throw new Error(`${key} 不能包含换行符`);
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+  return pattern.test(content)
+    ? content.replace(pattern, line)
+    : `${content.trimEnd()}\n${line}\n`;
+}
+
+function databaseUrlWithPassword(databaseUrl, password) {
+  let parsed;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new Error("server/.env 中的 DATABASE_URL 格式不正确");
   }
-  if (!settings.values.CHERRYSTUDIO_API_KEY) {
-    problems.push("CHERRYSTUDIO_API_KEY 尚未填写");
-  }
-  if (!existsSync(settings.sshIdentityFile)) {
-    problems.push(`SSH 私钥不存在：${settings.sshIdentityFile}`);
-  }
-  return problems;
+  parsed.password = encodeURIComponent(password);
+  return parsed.toString();
+}
+
+function ensureLocalEnvFiles() {
+  if (!existsSync(SERVER_ENV_PATH)) copyFileSync(SERVER_ENV_EXAMPLE, SERVER_ENV_PATH);
+  if (!existsSync(FRONTEND_ENV_PATH)) copyFileSync(FRONTEND_ENV_EXAMPLE, FRONTEND_ENV_PATH);
 }
 
 function ensureConfiguration() {
-  let settings = loadSettings();
-  if (!existsSync(SERVER_ENV_PATH) || configurationProblems(settings).length > 0) {
-    log("检测到首次运行或配置不完整，进入首次配置…");
-    execFileSync(process.execPath, [SETUP_SCRIPT], { cwd: ROOT, stdio: "inherit" });
-    settings = loadSettings();
-  }
-
-  const problems = configurationProblems(settings);
-  if (problems.length > 0) {
-    throw new Error(`配置仍不完整：\n- ${problems.join("\n- ")}\n请修改 server/.env 后重试`);
-  }
-  return settings;
+  ensureLocalEnvFiles();
+  const stored = credentialStatus();
+  if (!stored.cherryApiKey || !stored.sshPassword || !stored.databasePassword) return null;
+  const settings = loadSettings();
+  const credentials = readCredentials();
+  return {
+    settings,
+    credentials,
+    runtimeEnv: {
+      ...process.env,
+      CHERRYSTUDIO_API_KEY: credentials.cherryApiKey,
+      DATABASE_URL: databaseUrlWithPassword(
+        settings.values.DATABASE_URL || "postgresql://billcompare:password@127.0.0.1:5433/billcompare?schema=public",
+        credentials.databasePassword,
+      ),
+    },
+  };
 }
 
 function npmInvocation(args) {
@@ -123,9 +139,9 @@ function npmInvocation(args) {
   return { command: process.execPath, args: [npmCli, ...args] };
 }
 
-function runNpm(args, cwd) {
+function runNpm(args, cwd, env = process.env) {
   const invocation = npmInvocation(args);
-  execFileSync(invocation.command, invocation.args, { cwd, stdio: "inherit", windowsHide: false });
+  execFileSync(invocation.command, invocation.args, { cwd, env, stdio: "inherit", windowsHide: false });
 }
 
 function ensureDependencies() {
@@ -173,28 +189,65 @@ function spawnBackground(command, args, options, logPath) {
   return child;
 }
 
-async function ensureTunnel(settings) {
+function ensureAskpassHelper() {
+  if (existsSync(ASKPASS_PATH)) return ASKPASS_PATH;
+  mkdirSync(path.dirname(ASKPASS_PATH), { recursive: true });
+  const source = [
+    "using System;",
+    "internal static class Program {",
+    "  private static int Main() {",
+    "    Console.Out.Write(Environment.GetEnvironmentVariable(\"BILLCOMPARE_SSH_PASSWORD\") ?? \"\");",
+    "    return 0;",
+    "  }",
+    "}",
+  ].join("\n");
+  const script = "Add-Type -TypeDefinition $env:BILLCOMPARE_ASKPASS_SOURCE "
+    + "-OutputAssembly $env:BILLCOMPARE_ASKPASS_PATH -OutputType ConsoleApplication";
+  execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", script], {
+    env: {
+      ...process.env,
+      BILLCOMPARE_ASKPASS_PATH: ASKPASS_PATH,
+      BILLCOMPARE_ASKPASS_SOURCE: source,
+    },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  return ASKPASS_PATH;
+}
+
+async function ensureTunnel(settings, sshPassword) {
   if (await portOpen(settings.localDatabasePort)) {
     log(`数据库入口已就绪（127.0.0.1:${settings.localDatabasePort}）`);
     return;
   }
 
+  if (!sshPassword) throw new Error("SSH 密码不能为空");
   log(`连接服务器数据库（${settings.sshUser}@${settings.sshHost}）…`);
   const tunnelLog = runtimeLog("ssh-tunnel.log");
   const args = [
     "-p", String(settings.sshPort), "-N",
-    "-i", settings.sshIdentityFile,
-    "-o", "BatchMode=yes",
+    "-o", "BatchMode=no",
     "-o", "ConnectTimeout=10",
     "-o", "StrictHostKeyChecking=accept-new",
     "-o", "ServerAliveInterval=60",
     "-o", "ServerAliveCountMax=3",
     "-o", "ExitOnForwardFailure=yes",
-    "-o", "IdentitiesOnly=yes",
+    "-o", "NumberOfPasswordPrompts=1",
+    "-o", "PreferredAuthentications=password,keyboard-interactive",
+    "-o", "PubkeyAuthentication=no",
     "-L", `127.0.0.1:${settings.localDatabasePort}:${settings.remoteDatabaseHost}:${settings.remoteDatabasePort}`,
     `${settings.sshUser}@${settings.sshHost}`,
   ];
-  const tunnel = spawnBackground("ssh", args, { cwd: ROOT }, tunnelLog);
+  const tunnel = spawnBackground("ssh", args, {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      BILLCOMPARE_SSH_PASSWORD: sshPassword,
+      DISPLAY: "billcompare",
+      SSH_ASKPASS: ensureAskpassHelper(),
+      SSH_ASKPASS_REQUIRE: "force",
+    },
+  }, tunnelLog);
 
   for (let attempt = 0; attempt < 15; attempt += 1) {
     await delay(1000);
@@ -204,7 +257,21 @@ async function ensureTunnel(settings) {
     }
     if (tunnel.exitCode !== null) break;
   }
-  throw new Error(`SSH 隧道建立失败。请确认公钥已加入服务器，详情见 ${tunnelLog}`);
+  throw new Error(`SSH 隧道建立失败。请确认 SSH 密码正确，详情见 ${tunnelLog}`);
+}
+
+async function ensureConfigServer() {
+  if (await portOpen(CONFIG_PORT)) return;
+  const logPath = runtimeLog("config-server.log");
+  spawnBackground(process.execPath, [path.join(ROOT, "scripts", "config-server.mjs")], {
+    cwd: ROOT,
+    env: { ...process.env },
+  }, logPath);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await delay(250);
+    if (await portOpen(CONFIG_PORT)) return;
+  }
+  throw new Error(`配置服务未启动成功，详情见 ${logPath}`);
 }
 
 async function backendHealth(port, deep = false) {
@@ -220,26 +287,27 @@ async function backendHealth(port, deep = false) {
   }
 }
 
-async function ensureBackend(settings) {
+async function ensureBackend(settings, runtimeEnv) {
   if (await portOpen(settings.backendPort)) {
     const health = await backendHealth(settings.backendPort, true);
     if (health?.service === "billcompare" && health.database === "ok" && health.cherryStudio?.status === "ok") {
       log(`后端、数据库和 CherryStudio 已就绪（端口 ${settings.backendPort}）`);
-      return;
+      return true;
     }
-    throw new Error(`${settings.backendPort} 端口上的后端未通过深度检查。请确认 CherryStudio 企业版已启动且 API Key 正确`);
+    log("已有后端未通过连接检查，请在页面中重新检测配置后再启动");
+    return false;
   }
 
   log("生成数据库客户端并应用迁移…");
-  runNpm(["run", "prisma:generate"], SERVER_DIR);
-  runNpm(["run", "prisma:deploy"], SERVER_DIR);
+  runNpm(["run", "prisma:generate"], SERVER_DIR, runtimeEnv);
+  runNpm(["run", "prisma:deploy"], SERVER_DIR, runtimeEnv);
 
   const backendLog = runtimeLog("backend.log");
   log(`启动后端（日志：${backendLog}）…`);
   const tsxCli = path.join(SERVER_DIR, "node_modules", "tsx", "dist", "cli.mjs");
   spawnBackground(process.execPath, [tsxCli, "src/index.ts"], {
     cwd: SERVER_DIR,
-    env: { ...process.env },
+    env: runtimeEnv,
   }, backendLog);
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -247,7 +315,7 @@ async function ensureBackend(settings) {
     const health = await backendHealth(settings.backendPort, true);
     if (health?.service === "billcompare" && health.database === "ok" && health.cherryStudio?.status === "ok") {
       log("后端、数据库和 CherryStudio 启动成功");
-      return;
+      return true;
     }
   }
   throw new Error(`后端未通过深度健康检查，详情见 ${backendLog}`);
@@ -304,19 +372,31 @@ function openBrowser() {
 async function main() {
   log("===== 锐力对账系统一键启动 =====");
   assertPrerequisites();
-  const settings = ensureConfiguration();
   ensureDependencies();
-  await ensureTunnel(settings);
-  await ensureBackend(settings);
+  ensureLocalEnvFiles();
+  await ensureConfigServer();
   await ensureFrontend();
   if (!NO_BROWSER) openBrowser();
+  const configuration = ensureConfiguration();
+  if (!configuration) {
+    log("请在前端的“连接设置”中填写并检测三项凭据");
+    return;
+  }
+  const { settings, credentials, runtimeEnv } = configuration;
+  await ensureTunnel(settings, credentials.sshPassword);
+  if (!(await ensureBackend(settings, runtimeEnv))) return;
   log("===== 全部启动完成 =====");
   log(`前端：http://127.0.0.1:${FRONTEND_PORT}/`);
   log(`后端：http://127.0.0.1:${settings.backendPort}/api/health`);
   log(`运行日志：${LOG_DIR}`);
 }
 
-main().catch((error) => {
-  console.error("\n[一键启动] 启动失败：", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch((error) => {
+    console.error("\n[一键启动] 启动失败：", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
+
+export { databaseUrlWithPassword, ensureAskpassHelper, loadSettings, setEnvValue };

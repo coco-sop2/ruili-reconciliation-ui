@@ -20,7 +20,7 @@ export function AppSidebar({ view, onViewChange }: AppSidebarProps) {
         <button type="button" className={view === "review" ? "active" : ""} onClick={() => onViewChange("review")}><i>审</i><span>差异处理</span></button>
         <span className="nav-label nav-label--second">系统</span>
         <button type="button" disabled><i>规</i><span>对账规则</span></button>
-        <button type="button" disabled><i>设</i><span>基础设置</span></button>
+        <button type="button" className={view === "settings" ? "active" : ""} onClick={() => onViewChange("settings")}><i>连</i><span>连接设置</span></button>
       </nav>
       <div className="sidebar-footer">
         <div className="avatar">V</div>

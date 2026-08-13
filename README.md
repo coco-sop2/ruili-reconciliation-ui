@@ -4,7 +4,7 @@
 
 ## 交付给另一台电脑
 
-代码可以直接交付，但不要把你自己的 `server/.env`、`.env.local` 或 SSH 私钥一起发送。这些文件已被 Git 忽略。
+代码可以直接交付，但不要把你自己的 `server/.env` 或 `.env.local` 一起发送。这些文件已被 Git 忽略。
 
 接收人的电脑需要：
 
@@ -12,15 +12,15 @@
 - Windows OpenSSH Client（系统“可选功能”里的 OpenSSH 客户端）。
 - CherryStudio 企业版已启动，API 服务监听 `127.0.0.1:24333`，并已创建名为“锐力”的对账 Agent。
 
-第一次使用：
+右键 `一键启动.ps1` 选择“使用 PowerShell 运行”。浏览器会自动打开，启动窗口随后自动关闭；前后端仍在后台运行。首次使用时在左侧“连接设置”填写：
 
-1. 双击 `首次配置.bat`。
-2. 脚本会创建 SSH 密钥，把公钥复制到剪贴板，并打开 `server/.env`。
-3. 把公钥交给服务器管理员，管理员只需授权一次。
-4. 通过安全渠道取得数据库密码和接收人自己的 CherryStudio API Key，填入 `server/.env` 后保存。
-5. 公钥授权完成后，双击 `一键启动.bat`。
+1. CherryStudio API Key。
+2. SSH 密码。
+3. PostgreSQL 数据库密码。
 
-以后每次只需双击 `一键启动.bat`。启动器会自动：
+点击“检测并保存”后，凭据由 Windows 当前用户加密保存在本机 `.runtime/config/credentials.json`，页面不会回显明文；后续启动会自动读取并检测。连接设置页始终保留，但不会修改服务器账号或密码。
+
+其余步骤全部自动完成：
 
 - 首次安装前后端 npm 依赖。
 - 建立 `127.0.0.1:5433` 到服务器 PostgreSQL 的 SSH 隧道。
@@ -53,11 +53,7 @@ billcompare/
 
 已有安装如果在 `server/.env` 中配置了旧的 `UPLOAD_DIR=./data/files`，原始文件会继续留在旧目录，避免破坏历史任务；新安装默认使用 `.runtime/data/uploads/`。
 
-### 服务器管理员操作
-
-管理员将接收人的公钥追加到服务器 `cherry` 用户的 `~/.ssh/authorized_keys`。建议为项目使用专用 SSH 用户，并仅允许转发到 `127.0.0.1:5432`，不要共享服务器密码或私钥。
-
-管理员还需通过安全渠道提供数据库账号密码。不要把真实密码、CherryStudio API Key 或任何私钥提交到 Git。
+不要提交真实密码或 CherryStudio API Key。启动时生成给后端使用的 `server/.env` 也已被 Git 忽略。
 
 ## 手动启动
 
@@ -86,7 +82,7 @@ npm run dev
 VITE_API_BASE_URL=http://127.0.0.1:3001
 ```
 
-服务器地址、SSH 隧道、Agent 默认名称、工作目录和服务凭据都由后端配置，详见 `server/.env.example`。`CHERRYSTUDIO_API_KEY` 和 `DATABASE_URL` 只能保存在接收人本机的 `server/.env`，不要提交到 Git。
+服务器地址、SSH 隧道、Agent 默认名称和工作目录由后端配置，详见 `server/.env.example`。凭据由本机连接设置页管理，不要提交到 Git。
 
 ## 对账流程
 
