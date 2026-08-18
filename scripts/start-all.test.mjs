@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { assertPrivateNodeModules, databaseUrlWithPassword, ensureAskpassHelper, macAskpassSource, setEnvValue } from "./start-all.mjs";
+import { assertPrivateNodeModules, databaseUrlWithPassword, ensureAskpassHelper, macAskpassSource, setEnvValue, sshEnvironment } from "./start-all.mjs";
 import { keychainArguments, protectSecret, unprotectSecret } from "./local-config.mjs";
 import { backendHealthy, friendlyConnectionError, runDatabaseProbe } from "./config-server.mjs";
 import { readFile } from "node:fs/promises";
@@ -113,12 +113,38 @@ test("launcher rejects shared node_modules and generates Prisma only during pack
   }
 });
 
+test("Windows SSH processes can find Git and system OpenSSH outside the inherited PATH", () => {
+  const env = {
+    Path: "C:\\BillCompare\\tools\\OpenSSH;D:\\Git\\cmd;C:\\custom-bin",
+    SystemRoot: "C:\\Windows",
+  };
+  const actual = sshEnvironment(env, "win32");
+  assert.deepEqual(actual.Path.split(";").slice(0, 6), [
+    "C:\\BillCompare\\tools\\OpenSSH",
+    "D:\\Git\\usr\\bin",
+    "C:\\Windows\\System32\\OpenSSH",
+    "C:\\Windows\\System32",
+    "C:\\Windows",
+    "D:\\Git\\cmd",
+  ]);
+  assert.equal(actual.PATH, undefined);
+});
+
 test("Windows launcher closes after success and pauses only on failure", async () => {
   const launcher = await readFile(new URL("../一键启动.ps1", import.meta.url), "utf8");
   assert.match(launcher, /scripts\\start-all\.mjs/);
   assert.match(launcher, /BILLCOMPARE_NO_PAUSE/);
   assert.match(launcher, /Read-Host 'Press Enter to close'/);
   assert.doesNotMatch(launcher, /Startup completed|Closing this window|首次配置/);
+});
+
+test("Windows installer bundles Git for Windows SSH instead of system OpenSSH", async () => {
+  const builder = await readFile(new URL("./build-installer.ps1", import.meta.url), "utf8");
+  assert.match(builder, /Get-Command git\.exe -All/);
+  assert.doesNotMatch(builder, /Get-Command ssh\.exe/);
+  assert.match(builder, /usr\\bin\\ssh\.exe/);
+  assert.match(builder, /share\\licenses/);
+  assert.match(builder, /openssh\\LICENCE/);
 });
 
 test("macOS launcher delegates to the cross-platform startup script", async () => {

@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { credentialStatus, readCredentials, saveCredentials } from "./local-config.mjs";
-import { ensureAskpassHelper, loadSettings } from "./start-all.mjs";
+import { ensureAskpassHelper, loadSettings, sshEnvironment } from "./start-all.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3334;
@@ -46,13 +46,13 @@ async function readBody(req) {
 }
 
 function askpassEnv(password) {
-  return {
+  return sshEnvironment({
     ...process.env,
     BILLCOMPARE_SSH_PASSWORD: password,
     DISPLAY: "billcompare",
     SSH_ASKPASS: ensureAskpassHelper(),
     SSH_ASKPASS_REQUIRE: "force",
-  };
+  });
 }
 
 function sshArgs(settings) {
@@ -176,7 +176,7 @@ async function testSsh(password, settings) {
       "-o", "ConnectTimeout=10",
       `${settings.sshUser}@${settings.sshHost}`,
       "true",
-    ], { cwd: ROOT, stdio: "ignore", windowsHide: true });
+    ], { cwd: ROOT, env: sshEnvironment(), stdio: "ignore", windowsHide: true });
     child.once("error", reject);
     child.once("exit", (code) => code === 0 ? resolve() : reject(new Error("SSH 登录失败")));
   });
@@ -281,6 +281,7 @@ function resumeStartup() {
   const output = openSync(path.join(LOG_DIR, "resume-startup.log"), "a");
   const child = spawn(process.execPath, [START_ALL, "--resume", "--no-browser"], {
     cwd: ROOT,
+    env: sshEnvironment(),
     detached: true,
     stdio: ["ignore", output, output],
     windowsHide: true,
