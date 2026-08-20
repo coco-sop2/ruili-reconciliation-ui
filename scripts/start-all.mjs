@@ -73,8 +73,40 @@ function loadSettings() {
   };
 }
 
-function commandAvailable(command, args) {
-  const result = spawnSync(command, args, { stdio: "ignore", windowsHide: true });
+function sshEnvironment(env = process.env, platform = process.platform) {
+  if (platform !== "win32") return { ...env };
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
+  const currentPaths = String(env[pathKey] || "").split(path.win32.delimiter).filter(Boolean);
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  const candidates = [
+    ...currentPaths
+      .map((entry) => entry.replace(/^"|"$/g, ""))
+      .filter((entry) => /[\\/]tools[\\/]OpenSSH[\\/]?$/i.test(entry)),
+    ...currentPaths
+      .map((entry) => entry.replace(/^"|"$/g, ""))
+      .filter((entry) => /[\\/]Git[\\/]cmd[\\/]?$/i.test(entry))
+      .map((entry) => path.win32.resolve(entry, "..", "usr", "bin")),
+    "D:\\Git\\usr\\bin",
+    env.ProgramW6432 && path.win32.join(env.ProgramW6432, "Git", "usr", "bin"),
+    env.ProgramFiles && path.win32.join(env.ProgramFiles, "Git", "usr", "bin"),
+    env.LOCALAPPDATA && path.win32.join(env.LOCALAPPDATA, "Programs", "Git", "usr", "bin"),
+    path.win32.join(systemRoot, "System32", "OpenSSH"),
+    path.win32.join(systemRoot, "System32"),
+    systemRoot,
+    ...currentPaths,
+  ].filter(Boolean);
+  const seen = new Set();
+  const searchPath = candidates.filter((entry) => {
+    const normalized = entry.toLowerCase();
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  }).join(path.win32.delimiter);
+  return { ...env, [pathKey]: searchPath };
+}
+
+function commandAvailable(command, args, env = process.env) {
+  const result = spawnSync(command, args, { env, stdio: "ignore", windowsHide: true });
   return !result.error;
 }
 
@@ -83,7 +115,7 @@ function assertPrerequisites() {
   if (major < 22 || (major === 22 && minor < 13)) {
     throw new Error(`需要 Node.js 22.13 或更高版本，当前为 ${process.version}`);
   }
-  if (!commandAvailable("ssh", ["-V"])) {
+  if (!commandAvailable("ssh", ["-V"], sshEnvironment())) {
     throw new Error("未找到 OpenSSH Client。请在 Windows 可选功能中安装 OpenSSH 客户端");
   }
 }
@@ -266,13 +298,13 @@ async function ensureTunnel(settings, sshPassword) {
   ];
   const tunnel = spawnBackground("ssh", args, {
     cwd: ROOT,
-    env: {
+    env: sshEnvironment({
       ...process.env,
       BILLCOMPARE_SSH_PASSWORD: sshPassword,
       DISPLAY: "billcompare",
       SSH_ASKPASS: ensureAskpassHelper(),
       SSH_ASKPASS_REQUIRE: "force",
-    },
+    }),
   }, tunnelLog);
 
   for (let attempt = 0; attempt < 15; attempt += 1) {
@@ -291,7 +323,7 @@ async function ensureConfigServer() {
   const logPath = runtimeLog("config-server.log");
   spawnBackground(process.execPath, [path.join(ROOT, "scripts", "config-server.mjs")], {
     cwd: ROOT,
-    env: { ...process.env },
+    env: sshEnvironment(),
   }, logPath);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await delay(250);
@@ -424,4 +456,4 @@ if (isMain) {
   });
 }
 
-export { assertPrivateNodeModules, databaseUrlWithPassword, ensureAskpassHelper, loadSettings, macAskpassSource, setEnvValue };
+export { assertPrivateNodeModules, databaseUrlWithPassword, ensureAskpassHelper, loadSettings, macAskpassSource, setEnvValue, sshEnvironment };
